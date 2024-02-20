@@ -1,0 +1,292 @@
+# Analysis
+
+```{r}
+#| label: includes
+#| include: false
+
+source(here::here("r", "libraries.r"))
+library(jsonlite)
+library(tidyjson)
+
+```
+
+
+```{r}
+#| label: constants
+#| eval: true
+#| include: false
+
+tddir <- r"(E:\data\taxdata-psl)"
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+ht(tcvars)
+
+```
+
+
+```{r}
+#| label: get-data
+#| eval: true
+#| include: false
+
+# sfn <- "stack-23-#-#-#.csv"
+# spath <- path(tddir, "scratch", sfn)
+# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
+#   mutate(src=stack$src)
+# glimpse(sdf)
+# count(sdf, src)
+# sfn <- "stack-23-#-#-#.csv"
+# spath <- path(tddir, "scratch", sfn)
+# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
+#   mutate(src=stack$src)
+# glimpse(sdf)
+# count(sdf, src)
+
+
+utcvars <- tcvars |> 
+  select(vname, desc) |> 
+  distinct() |> 
+  add_case(vname=c("n", "nret"), desc=c("# records", "# returns (millions)"))
+
+sdf <- readRDS(path(tddir, "scratch", "sdf.rds"))
+
+sdf |> 
+  summarise(n=n(), 
+            nret=sum(s006), 
+            across(
+              c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
+                e01500, e01700, e02100, e02300, e02400,
+                e03150, e03210, e03270, e03300, e17500, e18400, e32800),
+              ~sum(.x * s006) /1e9), .by=src) |> 
+  pivot_longer(-src, names_to = "vname") |> 
+  pivot_wider(names_from = src) |> 
+  mutate(pemtd=pe - td, pdiff=pemtd / td) |> 
+  left_join(utcvars, by = join_by(vname))
+  
+
+
+```
+## Comparison of weighted sums for selected variables
+
+
+```{r}
+#| label: basic-comparison
+#| eval: true
+#| include: true
+
+sdf |> 
+  summarise(n=n(), 
+            nret=sum(s006), 
+            across(
+              c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
+                e01500, e01700, e02100, e02300, e02400,
+                e03150, e03210, e03270, e03300, e17500, e18400, e32800),
+              ~sum(.x * s006)), .by=src) |> 
+  pivot_longer(-src, names_to = "vname") |> 
+  pivot_wider(names_from = src) |> 
+  mutate(pemtd=pe - td, pdiff=pemtd / td, rn=row_number()) |> 
+  left_join(utcvars, by = join_by(vname)) |> 
+  gt() |> 
+  cols_hide(rn) |> 
+  tab_header(
+    title = html("Comparison of weighted sums, selected variables, Policy Engine (pe), taxdata same variables (td), and taxdata all variables (tdall)"),
+    subtitle = html("Tax year 2023, dollar amounts in billions")
+  ) |>  
+  cols_label(tdall=html("taxdata (tdall) - all variables"),
+             td=html("taxdata (td)"),
+             pe=html("Policy Engine (pe)"),
+             pemtd=html("Policy Engine minus taxdata (pemtd)"),
+             pdiff=html("Policy Engine % difference from taxdata")) |> 
+  fmt_number(columns=c(tdall, td, pe, pemtd),
+             rows=1,
+             decimals=0) |> 
+  fmt_number(columns=c(tdall, td, pe, pemtd),
+             rows=2,
+             scale=1e-6,
+             decimals=2) |> 
+  fmt_number(columns=c(tdall, td, pe, pemtd),
+             rows=rn > 2,
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns=pdiff,
+              decimals=1)
+
+```
+
+## Comparison of weighted sums by AGI range for selected variables
+
+
+```{r}
+#| label: agirange-comparison
+#| eval: true
+#| include: true
+
+# #| page-layout: full
+# #| column: screen
+
+ycuts <- c(-Inf, -1e-99, 0, 25e3, 50e3, 100e3, 200e3, 500e3, 1e6, Inf)
+sdf2 <- sdf |> 
+  mutate(agirange=cut(c00100, ycuts))
+# count(sdf2, agirange)
+  
+tabdata <- sdf2 |> 
+  summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006), .by=c(src, agirange)) |> 
+  pivot_longer(cols= -c(src, agirange)) |> 
+  arrange(src, name, agirange) |> 
+  pivot_wider(names_from = c(name, src)) |> 
+  select(agirange, starts_with(c("n_", "nret_", "taxbc_")), everything()) |> 
+  arrange(agirange) |> 
+  janitor::adorn_totals() |> 
+  mutate(avgtaxbc_pe=taxbc_pe / nret_pe, avgtaxbc_td=taxbc_td / nret_td)
+
+tabdata |> 
+  gt() |> 
+  tab_header(
+    title = html("Comparison by AGI range of Policy Engine (pe), taxdata same variables (td), and taxdata all variables (tdall)"),
+    subtitle = html("Tax year 2023")
+  ) |>
+  tab_spanner(columns = starts_with("n_"),
+              label="# of records") |> 
+  tab_spanner(columns = starts_with("nret_"),
+              label=html("# of returns<br>(millions)")) |> 
+  tab_spanner(columns = starts_with("taxbc_"),
+              label=html("tax before credits<br>($ billions)")) |>   
+  tab_spanner(columns = starts_with("avgtaxbc_"),
+              label=html("average tax before credits<br>($ dollars)")) |> 
+  fmt_number(columns=starts_with("n_"),
+             decimals=0) |> 
+  fmt_number(columns=starts_with("nret_"),
+             scale=1e-6,
+             decimals=1) |> 
+  fmt_number(columns=starts_with("taxbc_"),
+             scale=1e-9,
+             decimals=1) |> 
+  fmt_number(columns=starts_with("avgtaxbc_"),
+             scale=1,
+             decimals=0) 
+
+```
+
+
+## Comparison of weighted sums by marital status for selected variables
+
+```{r}
+#| label: mars-comparison
+#| eval: true
+#| include: true
+
+# #| column: screen
+
+# count(sdf, MARS)
+#  [1=single, 2=joint, 3=separate, 4=household-head, 5=widow(er)
+mlabs <- c(single=1, joint=2, separate=3, "head of household"=4, "widow(er)"=5)
+# mlabs
+
+sdf2 <- sdf |> 
+  mutate(mars2=factor(MARS, levels=mlabs, labels=names(mlabs)))
+# count(sdf2, MARS, mars2)
+  
+tabdata <- sdf2 |> 
+  summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006), .by=c(src, mars2)) |> 
+  pivot_longer(cols= -c(src, mars2)) |> 
+  arrange(src, name, mars2) |> 
+  pivot_wider(names_from = c(name, src)) |> 
+  select(mars2, starts_with(c("n_", "nret_", "taxbc_")), everything()) |> 
+  arrange(mars2) |> 
+  janitor::adorn_totals() |> 
+  mutate(avgtaxbc_pe=taxbc_pe / nret_pe, avgtaxbc_td=taxbc_td / nret_td)
+
+tabdata |> 
+  gt() |> 
+  tab_header(
+    title = html("Comparison by marital status of Policy Engine (pe), taxdata same variables (td), and taxdata all variables (tdall)"),
+    subtitle = html("Tax year 2023")
+  ) |>
+  tab_spanner(columns = starts_with("n_"),
+              label="# of records") |> 
+  tab_spanner(columns = starts_with("nret_"),
+              label=html("# of returns<br>(millions)")) |> 
+  tab_spanner(columns = starts_with("taxbc_"),
+              label=html("tax before credits<br>($ billions)")) |>   
+  tab_spanner(columns = starts_with("avgtaxbc_"),
+              label=html("average tax before credits<br>($ dollars)")) |> 
+  fmt_number(columns=starts_with("n_"),
+             decimals=0) |> 
+  fmt_number(columns=starts_with("nret_"),
+             scale=1e-6,
+             decimals=1) |> 
+  fmt_number(columns=starts_with("taxbc_"),
+             scale=1e-9,
+             decimals=1) |> 
+  fmt_number(columns=starts_with("avgtaxbc_"),
+             scale=1,
+             decimals=0) 
+
+```
+
+
+## Correlations
+
+```{r}
+#| label: correlations-prep
+#| eval: true
+#| include: false
+
+library(corrr)
+
+# get top 10 variables
+ns(sdf)
+topvars <- sdf |> 
+  filter(src=="pe") |> 
+  select(s006, starts_with("e", ignore.case=FALSE)) |> 
+  summarise(nret=sum(s006), across(-s006, ~ sum(.x * s006))) |> 
+  pivot_longer(-nret) |> 
+  filter(str_sub(name, 2, 2) %in% 0:9,
+         str_sub(name, -1, -1) %in% 0:9) |> 
+  arrange(desc(value)) |> 
+  select(-nret) |> 
+  filter(value > 0)
+
+(vars <- topvars$name[1:10])
+
+
+f <- function(df){
+  correlate(df) |> 
+    shave() |> 
+    rename(var1=term) |> 
+    pivot_longer(-var1, names_to = "var2", values_to = "corr") |> 
+    filter(!is.na(corr))
+}
+
+cordf <- sdf |> 
+  filter(src %in% c("td", "pe")) |> 
+  select(src, any_of(vars)) |> 
+  reframe(f(pick(everything())), .by=src) |> 
+  pivot_wider(names_from = src, values_from = corr) |> 
+  mutate(diff=pe - td) |> 
+  arrange(desc(abs(diff))) |> 
+  left_join(utcvars |> rename(var1=vname, desc1=desc), by = join_by(var1)) |> 
+  left_join(utcvars |> rename(var2=vname, desc2=desc), by = join_by(var2))
+
+
+```
+
+```{r}
+#| label: correlations
+#| eval: true
+#| include: true
+
+cordf |> 
+  # filter(row_number() <= 10) |> 
+  filter(abs(diff) >= 0.1) |> 
+  gt() |>  
+  tab_header(
+    title = html("Correlation pairs with absolute difference >= 0.10, taxdata (td) and Policy Engine (pe)"),
+    subtitle = html("Tax year 2023")
+  ) |>
+  fmt_number(columns=c(td, pe, diff),
+             decimals=3)
+
+
+```
+
