@@ -34,7 +34,7 @@ editor_options:
 
 execute:
   eval: true
-  echo: false
+  echo: true  # so we can have code folding
   error: false
   warning: false
   message: false  # not sure if allowed

@@ -2,7 +2,8 @@
 
 ```{r}
 #| label: includes
-#| include: false
+#| echo: true
+
 
 source(here::here("r", "libraries.r"))
 library(jsonlite)
@@ -14,12 +15,12 @@ library(tidyjson)
 ```{r}
 #| label: constants
 #| eval: true
-#| include: false
+#| echo: true
 
 tddir <- r"(E:\data\taxdata-psl)"
 
 tcvars <- readRDS(here::here("data", "tcvars.rds"))
-ht(tcvars)
+# ht(tcvars)
 
 ```
 
@@ -27,20 +28,7 @@ ht(tcvars)
 ```{r}
 #| label: get-data
 #| eval: true
-#| include: false
-
-# sfn <- "stack-23-#-#-#.csv"
-# spath <- path(tddir, "scratch", sfn)
-# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
-#   mutate(src=stack$src)
-# glimpse(sdf)
-# count(sdf, src)
-# sfn <- "stack-23-#-#-#.csv"
-# spath <- path(tddir, "scratch", sfn)
-# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
-#   mutate(src=stack$src)
-# glimpse(sdf)
-# count(sdf, src)
+#| echo: true
 
 
 utcvars <- tcvars |> 
@@ -48,31 +36,31 @@ utcvars <- tcvars |>
   distinct() |> 
   add_case(vname=c("n", "nret"), desc=c("# records", "# returns (millions)"))
 
-sdf <- readRDS(path(tddir, "scratch", "sdf.rds"))
+sdf <- readRDS(path(tddir, "scratch", "sdf.rds")) # created in prelims.qmd
 
-sdf |> 
-  summarise(n=n(), 
-            nret=sum(s006), 
-            across(
-              c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
-                e01500, e01700, e02100, e02300, e02400,
-                e03150, e03210, e03270, e03300, e17500, e18400, e32800),
-              ~sum(.x * s006) /1e9), .by=src) |> 
-  pivot_longer(-src, names_to = "vname") |> 
-  pivot_wider(names_from = src) |> 
-  mutate(pemtd=pe - td, pdiff=pemtd / td) |> 
-  left_join(utcvars, by = join_by(vname))
+# sdf |> 
+#   summarise(n=n(), 
+#             nret=sum(s006), 
+#             across(
+#               c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
+#                 e01500, e01700, e02100, e02300, e02400,
+#                 e03150, e03210, e03270, e03300, e17500, e18400, e32800),
+#               ~sum(.x * s006) /1e9), .by=src) |> 
+#   pivot_longer(-src, names_to = "vname") |> 
+#   pivot_wider(names_from = src) |> 
+#   mutate(pemtd=pe - td, pdiff=pemtd / td) |> 
+#   left_join(utcvars, by = join_by(vname))
   
 
 
 ```
-## Comparison of weighted sums for selected variables
 
+## Comparison of weighted sums for selected variables
 
 ```{r}
 #| label: basic-comparison
 #| eval: true
-#| include: true
+#| echo: true
 
 sdf |> 
   summarise(n=n(), 
@@ -119,7 +107,7 @@ sdf |>
 ```{r}
 #| label: agirange-comparison
 #| eval: true
-#| include: true
+#| echo: true
 
 # #| page-layout: full
 # #| column: screen
@@ -173,7 +161,7 @@ tabdata |>
 ```{r}
 #| label: mars-comparison
 #| eval: true
-#| include: true
+#| echo: true
 
 # #| column: screen
 
@@ -230,12 +218,12 @@ tabdata |>
 ```{r}
 #| label: correlations-prep
 #| eval: true
-#| include: false
+#| echo: true
 
 library(corrr)
 
 # get top 10 variables
-ns(sdf)
+# ns(sdf)
 topvars <- sdf |> 
   filter(src=="pe") |> 
   select(s006, starts_with("e", ignore.case=FALSE)) |> 
@@ -247,7 +235,7 @@ topvars <- sdf |>
   select(-nret) |> 
   filter(value > 0)
 
-(vars <- topvars$name[1:10])
+vars <- topvars$name[1:10]
 
 
 f <- function(df){
@@ -274,7 +262,7 @@ cordf <- sdf |>
 ```{r}
 #| label: correlations
 #| eval: true
-#| include: true
+#| echo: true
 
 cordf |> 
   # filter(row_number() <= 10) |> 

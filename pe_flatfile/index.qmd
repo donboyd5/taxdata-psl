@@ -20,4 +20,4 @@ The basic steps are:
 
 -   Analyze the resulting output file. Although most analysis is of initial variables rather than calculated variables, running the file through Tax-Calculator was important because it constructs AGI, which is an important classifier for distributional analysis.
 
--   In the next week or so I'll get the R code that does the above up on GitHub and will link to it.
+-   The R code that does the above [is on GitHub](https://github.com/donboyd5/taxdata-psl) in the pe_flatfile folder.

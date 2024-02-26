@@ -25,6 +25,7 @@ book:
 format:
   html:
     theme: cosmo
+    code-fold: true
   # pdf:
   #   documentclass: scrreprt
 

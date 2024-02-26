@@ -3,6 +3,7 @@
 ```{r}
 #| label: includes
 #| include: false
+#| echo: true
 
 source(here::here("r", "libraries.r"))
 library(jsonlite)
@@ -22,18 +23,28 @@ library(tidyjson)
 #| label: constants
 #| eval: true
 #| include: false
+#| echo: true
 
 tddir <- r"(E:\data\taxdata-psl)"
 
 # URL of tax-calculator variables json file
 url <- "https://raw.githubusercontent.com/PSLmodels/Tax-Calculator/master/taxcalc/records_variables.json"
 
+url_pe_flat <- "https://github.com/PSLmodels/tax-microdata-benchmarking/releases/download/policyengine-cps-flat-file/tax_microdata.csv.gz"
+
+wrp <- r"(c:\Program Files\WinRAR\WinRAR.exe)"
+pez <- path(tddir, "tax_microdata.csv.gz")
+
 ```
+
 
 ```{r}
 #| label: get-taxvarsdata
 #| eval: false
 #| include: false
+#| echo: true
+
+# #| code-fold: true
 
 # update this if taxdata variables change
 
@@ -59,13 +70,26 @@ saveRDS(allvars, here::here("data", "tcvars.rds"))
 
 ```
 
+
+```{r}
+#| label: download-pe-flatfile
+#| eval: false
+#| include: false
+#| echo: true
+
+# only update when the pe flatfile changes
+download.file(url=url_pe_flat, destfile = pez, mode="wb")
+
+```
+
 ```{r}
 #| label: get-tdata-and-vars
 #| eval: true
 #| include: false
+#| echo: true
 
 tcvars <- readRDS(here::here("data", "tcvars.rds"))
-ht(tcvars)
+# ht(tcvars)
 
 utcvars <- tcvars |> 
   select(vname, vtype, desc) |> 
@@ -76,7 +100,7 @@ utcvars <- tcvars |>
 tdfn <- "tc23.csv"
 tdpath <- path(tddir, tdfn)
 tddf <- vroom(tdpath) # Rows: 252868 Columns: 209
-glimpse(tddf)
+# glimpse(tddf)
 
 ```
 
@@ -84,10 +108,11 @@ glimpse(tddf)
 #| label: get-pedata-and-date
 #| eval: true
 #| include: false
+#| echo: true
 
-## get the file modification date of the csv file using winrar because that will not change the date the way other utilities do ----
-wrp <- r"(c:\Program Files\WinRAR\WinRAR.exe)"
-pez <- path(tddir, "tax_microdata.csv.gz")
+# get the file modification date of the csv file using winrar (wrp)
+#   because that will not change the date the way other utilities do
+
 # un-winrar the file
 command <- sprintf('"%s" x -ibck -o+ "%s" "*.*" "%s"', wrp, pez, tddir)
 system(command, wait = TRUE)
@@ -96,33 +121,37 @@ system(command, wait = TRUE)
 pefn <- "tax_microdata.csv"
 pepath <- path(tddir, pefn)
 pedata <- file_info(pepath)
-glimpse(pedata)
-(pedate <- pedata$modification_time)
+# glimpse(pedata)
+pedate <- pedata$modification_time
 # we can delete the csv file if we want
 
 ## get the pe data directly from the gz file ----
 pedf <- vroom(pez) # read directly from the gz file Rows: 155312 Columns: 62                                                                                                                                                                                        
-glimpse(pedf)
+# glimpse(pedf)
 
 
 ```
 
 This file examines the version of the Policy Engine flat file created on `r pedate`.
 
-## Variables that are in the Policy Engine flat file but are not in taxdata:
-
-Note: [Nikhil is aware](https://github.com/PSLmodels/tax-microdata-benchmarking/pull/7#pullrequestreview-1884702316) that the following variables in PE can be removed, and will remove them:
-
-![](images/clipboard-1602696867.png)
+## Variables that are in the Policy Engine flat file, if any, but are not in taxdata:
 
 ```{r}
 #| label: vnames-pe-xtd
 #| eval: true
 #| include: true
+#| echo: true
 
-# Nikhil is fixing this
+# Nikhil fixed this
 setdiff(names(pedf), names(tddf)) |> sort() # "e00800p" "e00800s" "e01500p" "e01500s" "e02300p" "e02300s" "e02400p" "e02400s"
 ```
+
+
+Note: [Prior versions of the PE flat file included the following variables that were not in taxdata ](https://github.com/PSLmodels/tax-microdata-benchmarking/pull/7#pullrequestreview-1884702316). It appears that they now have been removed:
+
+![](images/clipboard-1602696867.png)
+
+
 
 ## Non-calculated variables that are in taxdata but are not in the Policy Engine flat file
 
@@ -130,6 +159,7 @@ setdiff(names(pedf), names(tddf)) |> sort() # "e00800p" "e00800s" "e01500p" "e01
 #| label: vnames-td-xpe
 #| eval: true
 #| include: true
+#| echo: true
 
 utcvars |> 
   filter(vtype=="read",
@@ -144,6 +174,7 @@ utcvars |>
 #| label: stack-save
 #| eval: false
 #| include: false
+#| echo: true
 
 goodvars <- intersect(names(tddf), names(pedf))
 
@@ -175,6 +206,7 @@ stack |>
 #| label: run-taxcalc
 #| eval: false
 #| include: false
+#| echo: true
 
 # run baseline tax on stacked file ----
 # if can't run due to permission error, delete dataframes created from output file and closeAllConnections()
@@ -192,24 +224,25 @@ system2(cmd1, args)
 #| label: explore-output
 #| eval: false
 #| include: false
+#| echo: true
 
 # get and examine the stacked data ----------------------------------------
 sfn <- "stack-23-#-#-#.csv"
 spath <- path(tddir, "scratch", sfn)
 sdf <- vroom(spath) |>  # Rows: sum Columns: 209
   mutate(src=stack$src)
-glimpse(sdf)
-count(sdf, src)
+# glimpse(sdf)
+# count(sdf, src)
 saveRDS(sdf, path(tddir, "scratch", "sdf.rds"))
 
 sdf <- readRDS(path(tddir, "scratch", "sdf.rds"))
 
-sdf |> 
-  summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006) / 1e9, .by=src) |> 
-  mutate(avgtaxbc=taxbc * 1e9 / nret) |> 
-  pivot_longer(cols= - src) |> 
-  pivot_wider(names_from = src) |> 
-  mutate(pdiff=pe / td - 1)
+# sdf |> 
+#   summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006) / 1e9, .by=src) |> 
+#   mutate(avgtaxbc=taxbc * 1e9 / nret) |> 
+#   pivot_longer(cols= - src) |> 
+#   pivot_wider(names_from = src) |> 
+#   mutate(pdiff=pe / td - 1)
 
 
 ```
