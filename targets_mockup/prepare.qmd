@@ -1,0 +1,228 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+
+# Get files
+
+```{r}
+#| label: includes
+#| include: false
+
+source(here::here("r", "libraries.r"))
+
+# E:\R_projects\projects\taxdata-psl\data\IRS spreadsheets
+
+```
+
+```{r}
+#| label: constants
+#| include: false
+
+dd <- here::here("data")
+
+irsweb <- "https://www.irs.gov/pub/irs-soi/"  # static files
+irsd <- path(dd, "IRS spreadsheets")
+targfn <- "target_recipes.xlsx"
+
+```
+
+
+```{r}
+#| label: get-recipes
+#| eval: true
+#| include: false
+
+df1 <- read_excel(path(dd, targfn), sheet="irs_downloads")
+
+df2 <- expand_grid(year=c(2015, 2021), df1) |> 
+  mutate(fname=paste0(str_sub(year, 3, 4), fname_base),
+         upath=paste0(baseurl, fname))
+
+glimpse(df2)
+
+```
+
+```{r}
+#| label: download-irs-spreadsheets
+#| eval: false
+#| include: false
+
+df2
+
+f <- function(upath){
+  print(upath)
+  download.file(url=upath, destfile=path(irsd, path_file(upath)), mode="wb")
+}
+
+walk(df2$upath, f) # walk through the list of paths, downloading and saving each file
+
+```
+
+```{r}
+#| label: read-irs-spreadsheets
+#| eval: false
+#| include: false
+
+get_rowmap <- function(tab){
+  # assumes dd and targfn are in the environment
+  sheet <- paste0(tab, "_map")
+  read_excel(path(dd, targfn), sheet=sheet, range=cellranger::cell_rows(1:3)) |> 
+    pivot_longer(-rowtype, values_to = "rownum") |> 
+    mutate(year=str_sub(name, -4, -1) |> as.integer(),
+           rownum=as.integer(rownum)) |> 
+    select(year, rowtype, rownum) |> 
+    arrange(year, desc(rowtype))
+}
+
+
+# table 1.1
+rows11 <- get_rowmap("tab11")
+rows11
+
+tab <- "tab11"
+sheet <- paste0(tab, "_map")
+tbl_map <- read_excel(path(dd, targfn), sheet=sheet, skip=3) |> 
+  pivot_longer(starts_with("column_"), values_to = "column") |> 
+    mutate(year=str_sub(name, -4, -1) |> as.integer()) |> 
+    select(year, column, colname, description, units, pufvar) |> 
+    arrange(year, column)
+tbl_map
+
+xlcols <- function(n) {
+  # create a vector of letters in the order of 
+  xl_letters <- c(LETTERS, sapply(LETTERS, function(x) paste0(x, LETTERS, sep = "")))
+  return(xl_letters[1:n])
+}
+
+tab2 <- "21in11si.xls"
+fp2 <- path(irsd, tab2)
+
+df1 <- read_excel(fp2, sheet=1, range=cellranger::cell_rows(10:29), col_names = FALSE)
+
+vnames <- tbl_map |> 
+  filter(year==2021) |> 
+  arrange(column) |> 
+  select(column, colname)
+
+df2 <- df1 |> 
+  setNames(xlcols(ncol(df1))) |> 
+  select(any_of(vnames$column)) |> 
+  setNames(vnames$colname) |> 
+  mutate(year=2021) |> 
+  relocate(year)
+df2
+
+
+```
+
+
+
+```{r}
+#| label: stuff
+#| eval: false
+#| include: false
+
+# Main url: https://www.irs.gov/statistics/soi-tax-stats-individual-statistical-tables-by-size-of-adjusted-gross-income
+
+# Tables from SOI Individual Complete Report (Publication 1304)
+
+# Category 1: Individual Income Tax Returns Filed and Sources of Income
+
+#  Table 1.1 Selected Income and Tax Items
+#  By Size and Accumulated Size of Adjusted Gross Income
+TAB11_2017 = '17in11si.xls'
+
+#  Table 1.2 Adjusted Gross Income, Exemptions, Deductions, and Tax Items
+#  By Size of Adjusted Gross Income and Marital Status
+TAB12_2017 = '17in12ms.xls'
+
+#  Table 1.4 Sources of Income, Adjustments Deductions and Exemptions, and Tax Items
+#  By Size of Adjusted Gross Income
+TAB14_2017 = '17in14ar.xls'
+
+#  Table 1.4A Returns with Income or Loss from Sales of Capital Assets Reported on Form1040, Schedule D
+#  By Size of Adjusted Gross Income
+TAB14A_2017 = '17in14acg.xls'
+
+#  Table 1.6 Number of Returns
+#  By Size of Adjusted Gross Income, Marital Status, and Age of Taxpayer
+TAB16_2017 = '17in16ag.xls'
+
+# Category 2: Individual Income Tax Returns with Exemptions and Itemized Deductions
+
+#  Table 2.1 Individual Income Tax Returns with Itemized Deductions:
+#  Sources of Income, Adjustments, Itemized Deductions by Type, Exemptions, and Tax Items
+#  By Size of Adjusted Gross Income
+TAB21_2017 = '17in21id.xls'
+
+#  Table 2.5 Individual Income Tax Returns with Earned Income Credit
+#  By Size of Adjusted Gross Income
+#  https://www.irs.gov/pub/irs-soi/18in25ic.xls
+TAB25_2017 = '17in25ic.xls'
+
+# Category 3: Individual Income Tax Returns with Tax Computation
+#  Table 3.2 Individual Income Tax Returns with Total Income Tax:
+#  Total Income Tax as a Percentage of Adjusted Gross Income
+TAB32_2017 = '17in32tt.xls'
+
+files_2017 = [TAB11_2017, TAB12_2017, TAB14_2017, TAB14A_2017,
+              TAB16_2017, TAB21_2017, TAB25_2017, TAB32_2017]
+
+
+# %% ONETIME:  2018 IRS Table urls
+# Main url: https://www.irs.gov/statistics/soi-tax-stats-individual-statistical-tables-by-size-of-adjusted-gross-income
+
+# Tables from SOI Individual Complete Report (Publication 1304)
+
+# Category 1: Individual Income Tax Returns Filed and Sources of Income
+
+#  Table 1.1 Selected Income and Tax Items
+#  By Size and Accumulated Size of Adjusted Gross Income
+TAB11_2018 = '18in11si.xls'
+TAB11d = {'src': '18in11si.xls',
+          'firstrow': 10,
+          'lastrow': 29,
+          'cols': 'A, B, D, K, L',
+          'colnames': ['incrange', 'nret_all', 'agi', 'nret_ti', 'ti']}
+
+#  Table 1.2 Adjusted Gross Income, Exemptions, Deductions, and Tax Items
+#  By Size of Adjusted Gross Income and Marital Status
+TAB12_2018 = '18in12ms.xls'
+
+#  Table 1.4 Sources of Income, Adjustments Deductions and Exemptions, and Tax Items
+#  By Size of Adjusted Gross Income
+TAB14_2018 = '18in14ar.xls'
+
+#  Table 1.4A Returns with Income or Loss from Sales of Capital Assets Reported on Form1040, Schedule D
+#  By Size of Adjusted Gross Income
+TAB14A_2018 = '18in14acg.xls'
+
+#  Table 1.6 Number of Returns
+#  By Size of Adjusted Gross Income, Marital Status, and Age of Taxpayer
+TAB16_2018 = '18in16ag.xls'
+
+# Category 2: Individual Income Tax Returns with Exemptions and Itemized Deductions
+
+#  Table 2.1 Individual Income Tax Returns with Itemized Deductions:
+#  Sources of Income, Adjustments, Itemized Deductions by Type, Exemptions, and Tax Items
+#  By Size of Adjusted Gross Income
+TAB21_2018 = '18in21id.xls'
+
+#  Table 2.5 Individual Income Tax Returns with Earned Income Credit
+#  By Size of Adjusted Gross Income
+#  https://www.irs.gov/pub/irs-soi/18in25ic.xls
+TAB25_2018 = '18in25ic.xls'
+
+# Category 3: Individual Income Tax Returns with Tax Computation
+#  Table 3.2 Individual Income Tax Returns with Total Income Tax:
+#  Total Income Tax as a Percentage of Adjusted Gross Income
+TAB32_2018 = '18in32tt.xls'
+
+files_2018 = [TAB11_2018, TAB12_2018, TAB14_2018, TAB14A_2018, TAB16_2018,
+              TAB21_2018, TAB25_2018, TAB32_2018]
+
+```
+

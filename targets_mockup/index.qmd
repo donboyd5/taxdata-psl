@@ -1,0 +1,9 @@
+# Introduction
+
+This website shows a mockup of a way to get targets for enhanced PUF variables.
+
+The basic steps are:
+
+-   A, B, C
+
+-   
