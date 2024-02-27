@@ -2,8 +2,6 @@
 
 ```{r}
 #| label: includes
-#| include: false
-#| echo: true
 
 source(here::here("r", "libraries.r"))
 library(jsonlite)
@@ -21,9 +19,6 @@ library(tidyjson)
 
 ```{r}
 #| label: constants
-#| eval: true
-#| include: false
-#| echo: true
 
 tddir <- r"(E:\data\taxdata-psl)"
 
@@ -41,8 +36,6 @@ pez <- path(tddir, "tax_microdata.csv.gz")
 ```{r}
 #| label: get-taxvarsdata
 #| eval: false
-#| include: false
-#| echo: true
 
 # #| code-fold: true
 
@@ -74,8 +67,6 @@ saveRDS(allvars, here::here("data", "tcvars.rds"))
 ```{r}
 #| label: download-pe-flatfile
 #| eval: false
-#| include: false
-#| echo: true
 
 # only update when the pe flatfile changes
 download.file(url=url_pe_flat, destfile = pez, mode="wb")
@@ -84,9 +75,6 @@ download.file(url=url_pe_flat, destfile = pez, mode="wb")
 
 ```{r}
 #| label: get-tdata-and-vars
-#| eval: true
-#| include: false
-#| echo: true
 
 tcvars <- readRDS(here::here("data", "tcvars.rds"))
 # ht(tcvars)
@@ -106,9 +94,6 @@ tddf <- vroom(tdpath) # Rows: 252868 Columns: 209
 
 ```{r}
 #| label: get-pedata-and-date
-#| eval: true
-#| include: false
-#| echo: true
 
 # get the file modification date of the csv file using winrar (wrp)
 #   because that will not change the date the way other utilities do
@@ -129,7 +114,6 @@ pedate <- pedata$modification_time
 pedf <- vroom(pez) # read directly from the gz file Rows: 155312 Columns: 62                                                                                                                                                                                        
 # glimpse(pedf)
 
-
 ```
 
 This file examines the version of the Policy Engine flat file created on `r pedate`.
@@ -138,9 +122,8 @@ This file examines the version of the Policy Engine flat file created on `r peda
 
 ```{r}
 #| label: vnames-pe-xtd
-#| eval: true
-#| include: true
-#| echo: true
+#| output: true
+
 
 # Nikhil fixed this
 setdiff(names(pedf), names(tddf)) |> sort() # "e00800p" "e00800s" "e01500p" "e01500s" "e02300p" "e02300s" "e02400p" "e02400s"
@@ -157,9 +140,7 @@ Note: [Prior versions of the PE flat file included the following variables that 
 
 ```{r}
 #| label: vnames-td-xpe
-#| eval: true
-#| include: true
-#| echo: true
+#| output: true
 
 utcvars |> 
   filter(vtype=="read",
@@ -170,20 +151,13 @@ utcvars |>
 
 ```
 
+## Summary info on files that will go into Tax-Calculator
+
 ```{r}
 #| label: stack-save
-#| eval: false
-#| include: false
-#| echo: true
+#| output: true
 
 goodvars <- intersect(names(tddf), names(pedf))
-
-# OLD BAD CODE
-# stack <- bind_rows(
-#   tddf |> mutate(src="tdall"),
-#   tddf |> select(any_of(goodvars)) |> mutate(src="td"),
-#   pedf |> select(any_of(goodvars)) |> mutate(src="pe")) |> 
-#   mutate(across(where(is.numeric), ~replace_na(., 0)))
 
 petdstack <- bind_rows(
   tddf |> select(any_of(goodvars)) |> mutate(src="td"),
@@ -203,6 +177,7 @@ tdkeepvars <- utcvars |>
 
 tdall <- tddf |> 
   select(any_of(tdkeepvars$vname)) |> mutate(src="tdall")
+skim(tdall)
 
 tdall |> 
   write_csv(here::here(tddir, "scratch", "tdall.csv"))
@@ -213,47 +188,41 @@ tdall |>
 
 ```{r}
 #| label: run-taxcalc
-#| eval: false
-#| include: false
-#| echo: true
 
 # run baseline tax on stacked file ----
 # if can't run due to permission error, delete dataframes created from output file and closeAllConnections()
 # rm(sdf, sdf2)
 # closeAllConnections()
 
-# OLD BAD CODE
-# cmd1 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
-# args <- c(shQuote("E:/data/taxdata-psl/scratch/stack.csv"), "2023",
-#           "--dump",
-#           "--outdir", "E:/data/taxdata-psl/scratch/")
-# system2(cmd1, args)
-
-
 # run tax-calculator on stacked pe-td same variables file ----
+# a <- unlink(out1path, force=TRUE, recursive=TRUE)
 cmd1 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
 args1 <- c(shQuote("E:/data/taxdata-psl/scratch/petdstack.csv"), "2023",
           "--dump",
           "--outdir", "E:/data/taxdata-psl/scratch/")
-system2(cmd1, args1)
+system2(cmd1, args1, wait=TRUE)
 
 
 # run tax-calculator on taxdata all variables file ----
+# rm(out2df)
+# a <- unlink(out2path, force=TRUE, recursive=TRUE)
 cmd2 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
 args2 <- c(shQuote("E:/data/taxdata-psl/scratch/tdall.csv"), "2023",
           "--dump",
           "--outdir", "E:/data/taxdata-psl/scratch/")
-system2(cmd2, args2)
+system2(cmd2, args2, wait=TRUE)
 
+# https://www.sharepointdiary.com/2020/12/powershell-delete-file.html
+# #:~:text=To%20force%20delete%20a%20file,and%20delete%20the%20file%20immediately
+# Remove-Item -path C:\Temp\example.txt -Force
+# system('powershell -file "C:\\directoryName\\coolScript.ps1"')
+# system('powershell Remove-Item -path C:\Temp\example.txt -Force')
 
 
 ```
 
 ```{r}
-#| label: explore-output
-#| eval: false
-#| include: false
-#| echo: true
+#| label: explore-save-output
 
 # get the two output files, save them with stacked record labels ----------------------------------------
 out1fn <- "petdstack-23-#-#-#.csv"
@@ -273,26 +242,6 @@ count(out2df, src)
 stackoutput <- bind_rows(out1df, out2df)
 
 saveRDS(stackoutput, path(tddir, "scratch", "tcoutput.rds"))
-
-
-
-# get and examine the stacked data ----------------------------------------
-# sfn <- "stack-23-#-#-#.csv"
-# spath <- path(tddir, "scratch", sfn)
-# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
-#   mutate(src=stack$src)
-# # glimpse(sdf)
-# # count(sdf, src)
-# saveRDS(sdf, path(tddir, "scratch", "sdf.rds"))
-
-sdf <- readRDS(path(tddir, "scratch", "tcoutput.rds"))
-
-# sdf |> 
-#   summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006) / 1e9, .by=src) |> 
-#   mutate(avgtaxbc=taxbc * 1e9 / nret) |> 
-#   pivot_longer(cols= - src) |> 
-#   pivot_wider(names_from = src) |> 
-#   mutate(pdiff=pe / td - 1)
 
 
 ```

@@ -2,8 +2,6 @@
 
 ```{r}
 #| label: includes
-#| echo: true
-
 
 source(here::here("r", "libraries.r"))
 library(jsonlite)
@@ -14,8 +12,6 @@ library(tidyjson)
 
 ```{r}
 #| label: constants
-#| eval: true
-#| echo: true
 
 tddir <- r"(E:\data\taxdata-psl)"
 
@@ -27,9 +23,6 @@ tcvars <- readRDS(here::here("data", "tcvars.rds"))
 
 ```{r}
 #| label: get-data
-#| eval: true
-#| echo: true
-
 
 utcvars <- tcvars |> 
   select(vname, desc) |> 
@@ -39,29 +32,13 @@ utcvars <- tcvars |>
 sdf <- readRDS(path(tddir, "scratch", "tcoutput.rds")) # created in prelims.qmd
 # count(sdf, src)
 
-# sdf |> 
-#   summarise(n=n(), 
-#             nret=sum(s006), 
-#             across(
-#               c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
-#                 e01500, e01700, e02100, e02300, e02400,
-#                 e03150, e03210, e03270, e03300, e17500, e18400, e32800),
-#               ~sum(.x * s006) /1e9), .by=src) |> 
-#   pivot_longer(-src, names_to = "vname") |> 
-#   pivot_wider(names_from = src) |> 
-#   mutate(pemtd=pe - td, pdiff=pemtd / td) |> 
-#   left_join(utcvars, by = join_by(vname))
-  
-
-
 ```
 
 ## Comparison of weighted sums for selected variables
 
 ```{r}
 #| label: basic-comparison
-#| eval: true
-#| echo: true
+#| output: true
 
 sdf |> 
   summarise(n=n(), 
@@ -108,8 +85,7 @@ sdf |>
 
 ```{r}
 #| label: agirange-comparison
-#| eval: true
-#| echo: true
+#| output: true
 
 # #| page-layout: full
 # #| column: screen
@@ -162,8 +138,7 @@ tabdata |>
 
 ```{r}
 #| label: mars-comparison
-#| eval: true
-#| echo: true
+#| output: true
 
 # #| column: screen
 
@@ -219,8 +194,6 @@ tabdata |>
 
 ```{r}
 #| label: correlations-prep
-#| eval: true
-#| echo: true
 
 library(corrr)
 
@@ -263,8 +236,7 @@ cordf <- sdf |>
 
 ```{r}
 #| label: correlations
-#| eval: true
-#| echo: true
+#| output: true
 
 cordf |> 
   # filter(row_number() <= 10) |> 
