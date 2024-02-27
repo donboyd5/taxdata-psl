@@ -1,6 +1,8 @@
 # Introduction
 
-This website shows a mockup of a way to get targets for enhanced PUF variables.
+This website demonstrates a prototype, in R, of a way to get targets for enhanced-PUF variables from IRS spreadsheets. It creates a csv file with a large number of potential targets. I do not expect that we will target all of them, but rather will choose a subset of them to target.
+
+I envision that in the short term we will use the results of this program, but that in the longer run Nikhil will develop a python approach to getting targets, do doubt better than this, although perhaps he will start by translating this code to python.
 
 The basic steps are:
 

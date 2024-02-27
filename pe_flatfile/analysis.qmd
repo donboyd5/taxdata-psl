@@ -68,7 +68,8 @@ sdf |>
             across(
               c(c00100, e00200, e00300, e00400, e00600, e00650, e00650, e00800, e00900, e01100, e01400, 
                 e01500, e01700, e02100, e02300, e02400,
-                e03150, e03210, e03270, e03300, e17500, e18400, e32800),
+                e03150, e03210, e03270, e03300, e17500, e18400, e32800,
+                c05800, taxbc, othertaxes, iitax, payrolltax),
               ~sum(.x * s006)), .by=src) |> 
   pivot_longer(-src, names_to = "vname") |> 
   pivot_wider(names_from = src) |> 
