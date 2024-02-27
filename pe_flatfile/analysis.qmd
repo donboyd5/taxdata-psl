@@ -36,7 +36,8 @@ utcvars <- tcvars |>
   distinct() |> 
   add_case(vname=c("n", "nret"), desc=c("# records", "# returns (millions)"))
 
-sdf <- readRDS(path(tddir, "scratch", "sdf.rds")) # created in prelims.qmd
+sdf <- readRDS(path(tddir, "scratch", "tcoutput.rds")) # created in prelims.qmd
+# count(sdf, src)
 
 # sdf |> 
 #   summarise(n=n(), 
