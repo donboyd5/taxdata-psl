@@ -178,29 +178,38 @@ utcvars |>
 
 goodvars <- intersect(names(tddf), names(pedf))
 
-stack <- bind_rows(
-  tddf |> mutate(src="tdall"),
+# OLD BAD CODE
+# stack <- bind_rows(
+#   tddf |> mutate(src="tdall"),
+#   tddf |> select(any_of(goodvars)) |> mutate(src="td"),
+#   pedf |> select(any_of(goodvars)) |> mutate(src="pe")) |> 
+#   mutate(across(where(is.numeric), ~replace_na(., 0)))
+
+petdstack <- bind_rows(
   tddf |> select(any_of(goodvars)) |> mutate(src="td"),
-  pedf |> select(any_of(goodvars)) |> mutate(src="pe")) |> 
-  mutate(across(where(is.numeric), ~replace_na(., 0)))
+  pedf |> select(any_of(goodvars)) |> mutate(src="pe"))
 
-skim(stack)
-
-# quick check
-# stack |> 
-#   summarise(n=n(), nret=sum(s006), wages=sum(e00200 * s006) / 1e9, .by=src) |> 
-#   mutate(avgwage=wages * 1e9 / nret) |> 
-#   pivot_longer(cols= - src) |> 
-#   pivot_wider(names_from = src) |> 
-#   mutate(pdiff=pe / td - 1)
+skim(petdstack) # good, no missing values
 
 
 # save stacked file ----
-stack |> 
-  write_csv(here::here(tddir, "scratch", "stack.csv"))
+petdstack |> 
+  write_csv(here::here(tddir, "scratch", "petdstack.csv"))
+
+# save td file without calc variables ----
+tdkeepvars <- utcvars |> 
+  filter(vtype=="read",
+         vname %in% names(tddf))
+
+tdall <- tddf |> 
+  select(any_of(tdkeepvars$vname)) |> mutate(src="tdall")
+
+tdall |> 
+  write_csv(here::here(tddir, "scratch", "tdall.csv"))
 
 
 ```
+
 
 ```{r}
 #| label: run-taxcalc
@@ -212,11 +221,31 @@ stack |>
 # if can't run due to permission error, delete dataframes created from output file and closeAllConnections()
 # rm(sdf, sdf2)
 # closeAllConnections()
+
+# OLD BAD CODE
+# cmd1 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
+# args <- c(shQuote("E:/data/taxdata-psl/scratch/stack.csv"), "2023",
+#           "--dump",
+#           "--outdir", "E:/data/taxdata-psl/scratch/")
+# system2(cmd1, args)
+
+
+# run tax-calculator on stacked pe-td same variables file ----
 cmd1 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
-args <- c(shQuote("E:/data/taxdata-psl/scratch/stack.csv"), "2023",
+args1 <- c(shQuote("E:/data/taxdata-psl/scratch/petdstack.csv"), "2023",
           "--dump",
           "--outdir", "E:/data/taxdata-psl/scratch/")
-system2(cmd1, args)
+system2(cmd1, args1)
+
+
+# run tax-calculator on taxdata all variables file ----
+cmd2 <- "C:/Users/donbo/anaconda3/Scripts/tc.exe"
+args2 <- c(shQuote("E:/data/taxdata-psl/scratch/tdall.csv"), "2023",
+          "--dump",
+          "--outdir", "E:/data/taxdata-psl/scratch/")
+system2(cmd2, args2)
+
+
 
 ```
 
@@ -226,16 +255,37 @@ system2(cmd1, args)
 #| include: false
 #| echo: true
 
-# get and examine the stacked data ----------------------------------------
-sfn <- "stack-23-#-#-#.csv"
-spath <- path(tddir, "scratch", sfn)
-sdf <- vroom(spath) |>  # Rows: sum Columns: 209
-  mutate(src=stack$src)
-# glimpse(sdf)
-# count(sdf, src)
-saveRDS(sdf, path(tddir, "scratch", "sdf.rds"))
+# get the two output files, save them with stacked record labels ----------------------------------------
+out1fn <- "petdstack-23-#-#-#.csv"
+out1path <- path(tddir, "scratch", out1fn)
+out1df <- vroom(out1path) |>
+  mutate(src=petdstack$src)
+glimpse(out1df)
+count(out1df, src)
 
-sdf <- readRDS(path(tddir, "scratch", "sdf.rds"))
+out2fn <- "tdall-23-#-#-#.csv"
+out2path <- path(tddir, "scratch", out2fn)
+out2df <- vroom(out2path) |>  # Rows: sum Columns: 209
+  mutate(src=tdall$src)
+glimpse(out2df)
+count(out2df, src)
+
+stackoutput <- bind_rows(out1df, out2df)
+
+saveRDS(stackoutput, path(tddir, "scratch", "tcoutput.rds"))
+
+
+
+# get and examine the stacked data ----------------------------------------
+# sfn <- "stack-23-#-#-#.csv"
+# spath <- path(tddir, "scratch", sfn)
+# sdf <- vroom(spath) |>  # Rows: sum Columns: 209
+#   mutate(src=stack$src)
+# # glimpse(sdf)
+# # count(sdf, src)
+# saveRDS(sdf, path(tddir, "scratch", "sdf.rds"))
+
+sdf <- readRDS(path(tddir, "scratch", "tcoutput.rds"))
 
 # sdf |> 
 #   summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006) / 1e9, .by=src) |> 
