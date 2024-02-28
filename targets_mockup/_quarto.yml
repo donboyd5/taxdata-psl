@@ -24,6 +24,7 @@ book:
 format:
   html:
     theme: cosmo
+    code-fold: true    
   # pdf:
   #   documentclass: scrreprt
 
@@ -35,6 +36,7 @@ editor_options:
 execute:
   eval: true
   echo: true  # so we can have code folding
+  output: false
   error: false
   warning: false
   message: false  # not sure if allowed

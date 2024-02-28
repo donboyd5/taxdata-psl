@@ -7,9 +7,10 @@ editor_options:
 
 # Get files
 
+## Load packages
+
 ```{r}
 #| label: includes
-#| include: false
 
 source(here::here("r", "libraries.r"))
 
@@ -17,9 +18,10 @@ source(here::here("r", "libraries.r"))
 
 ```
 
+## Define folder names and other constants
+
 ```{r}
 #| label: constants
-#| include: false
 
 dd <- here::here("data")
 
@@ -30,10 +32,11 @@ targfn <- "target_recipes.xlsx"
 ```
 
 
+## Read the target_recipes tab that defines IRS table spreadsheets to download
+
 ```{r}
 #| label: get-recipes
-#| eval: true
-#| include: false
+#| output: false
 
 df1 <- read_excel(path(dd, targfn), sheet="irs_downloads")
 
@@ -45,10 +48,12 @@ glimpse(df2)
 
 ```
 
+
+## Download the IRS spreadsheets (if the code chunk's eval option is set to TRUE)
+
 ```{r}
 #| label: download-irs-spreadsheets
 #| eval: false
-#| include: false
 
 df2
 
@@ -61,10 +66,13 @@ walk(df2$upath, f) # walk through the list of paths, downloading and saving each
 
 ```
 
+## Functions to read IRS spreadsheets
+
+### Function to read mapping tab for an IRS spreadsheet (found in **target_recipes.xlsx**)
+
 ```{r}
 #| label: read-irs-spreadsheets
 #| eval: false
-#| include: false
 
 get_rowmap <- function(tab){
   # assumes dd and targfn are in the environment
@@ -123,7 +131,6 @@ df2
 ```{r}
 #| label: stuff
 #| eval: false
-#| include: false
 
 # Main url: https://www.irs.gov/statistics/soi-tax-stats-individual-statistical-tables-by-size-of-adjusted-gross-income
 
