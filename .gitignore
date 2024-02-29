@@ -7,9 +7,12 @@ _book/
 *_files/
 _freeze/
 .quarto/
-data/
+data/IRS spreadsheets/
 documents/
+ignore/
 
+*.csv
 *.rds
+
 
 
