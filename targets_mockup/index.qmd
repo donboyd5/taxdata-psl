@@ -52,9 +52,9 @@ The basic steps are:
 
         -   `notes` - additional information about the table
 
-Here is a screenshot of the first two rows of this tab:
+Here is a screenshot of this tab:
 
-![](images/clipboard-176911770.png)
+![](images/clipboard-2883034879.png)
 
 -   Several "mapping" tabs, each of which corresponds to an IRS table (e.g., `tab11_map` corresponds to IRS Table 1.1). Each such tab maps key information in the spreadsheet so that it can be read in an automated fashion. Each mapping tab has two sections: (1) a section at top that tells, for each year of interest, the starting row and ending row for key information in the IRS table, and (2) below that, a section that says where key columns of interest are located, giving:
 
@@ -70,10 +70,12 @@ Here is a screenshot of the first two rows of this tab:
 
 -   The screenshot below shows information in the mapping tab `tab11_map`, which provides information on IRS Table 1.1:
 
-![](images/clipboard-1754309540.png)
+![](images/clipboard-1877344609.png)
 
 The mapping tab also includes selected screenshots from corresponding IRS spreadsheet files that show what the IRS file looks like.
 
-An R program reads the mapping information for a particular table and uses it to read a corresponding IRS Excel spreadsheet: The program pull columns of interest from the IRS spreadsheet and create a dataframes with column names shown in the colname column of the mapping tab. Here is an excerpt from Table 1.1 for 2021 (21in11si.xls). It shows that the data start in row 10 of the spreadsheet and that column A has the AGI range, B has the number of returns, D has AGI, and G has number of returns with taxable income, consistent with the mapping tab above:
+An R program reads the mapping information for a particular table and uses it to read a corresponding IRS Excel spreadsheet. The program pulls columns of interest from the IRS spreadsheet and creates a dataframe with column names shown in the colname column of the mapping tab.
+
+Here is an excerpt from Table 1.1 for 2021 (21in11si.xls). It shows that the data start in row 10 of the spreadsheet and that column A has the AGI range, B has the number of returns, D has AGI, and G has number of returns with taxable income, consistent with the mapping tab above:
 
 ![](images/clipboard-1681514924.png)
