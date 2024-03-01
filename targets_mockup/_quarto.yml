@@ -41,7 +41,7 @@ execute:
   warning: false
   message: false  # not sure if allowed
   note: false  # not sure if allowed
-  freeze: auto  # during global project renders, re-render only when source changes
+  freeze: false  # during global project renders, re-render only when source changes
   
   
 # renv-related commands
