@@ -1,6 +1,12 @@
 # Introduction
 
-This target-getting project implements in R a way to get targets for enhanced-PUF variables from IRS spreadsheets, for historical years. It creates a csv file with a large number of potential targets. I do not expect that we will target all of these items, but rather will choose a subset to target.
+This target-getting project implements, in R, a way to get summary data on tax return items for historical years from IRS spreadsheets. These data, sometimes with adjustment, may be used to construct aggregate and distributional potential targets for PUF variables. The project creates a csv file with a large number of potential targets. I do not expect that we will target all of these items, but rather will choose a subset to target.
+
+The csv file is in the [data folder](https://github.com/donboyd5/taxdata-psl/tree/main/data) of Boyd's [taxdata-psl project](https://github.com/donboyd5/taxdata-psl/tree/main).
+
+The code that creates the csv file and this website is in the [targets_mockup folder](https://github.com/donboyd5/taxdata-psl/tree/main/targets_mockup) in Boyd's [taxdata-psl project](https://github.com/donboyd5/taxdata-psl/tree/main).
+
+This web page has a useful datatable in @sec-show-targets that displays the potential targets and allows filtering and sorting to explore the targets.
 
 I envision that in the short term (Phase 2 and perhaps even Phase 3) we will use the output of this project – the csv file of potential targets – to help set targets for historical years. In the longer run I expect that Nikhil will develop a python approach to getting targets, no doubt better than this, although perhaps he will start by translating this code to python.
 

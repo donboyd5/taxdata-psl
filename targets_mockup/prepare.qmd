@@ -52,8 +52,10 @@ glimpse(tabmeta)
 ## Download the IRS spreadsheets (if the code chunk's eval option is set to TRUE)
 
 ```{r}
-#| label: download-irs-spreadsheets
+#| label: CAUTION-download-irs-spreadsheets
 #| eval: false
+
+# CAUTION: only re-download spreadsheets (set eva: true) if they have changed or been deleted
 
 tabmeta
 
@@ -112,7 +114,7 @@ get_colmap <- function(tab){
     mutate(table=tab,
            year=str_sub(name, -4, -1) |> as.integer(),
            column_num=match(column_letter, allcols)) |> 
-    select(table, year, column_num, column_letter, vname, description, units, pufvar, notes) |> 
+    select(table, year, column_num, column_letter, vname, description, units, notes) |> 
     filter(!is.na(column_letter), !is.na(vname)) |> 
     arrange(table, year, column_num)
   col_map
@@ -135,8 +137,8 @@ ht(allcols)
 
 
 # tabs <- c("tab11", "tab12")
-tabs <- c("tab11", "tab12", "tab14")
-# tabs <- c("tab11", "tab12", "tab14", "tab21")
+# tabs <- c("tab11", "tab12", "tab14")
+tabs <- c("tab11", "tab12", "tab14", "tab21")
 
 # get start and end rows for each file of interest
 tabrows <- tabs |> 
@@ -221,7 +223,7 @@ ptargets |>
 
 ```
 
-## Show potential targets
+## Show potential targets {#sec-show-targets}
 
 ```{r}
 #| label: show-targets
