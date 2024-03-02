@@ -11,7 +11,7 @@ data/IRS spreadsheets/
 documents/
 ignore/
 
-*.csv
+#  *.csv -- do allow potential_targets.csv
 *.rds
 *~*  # temporary files
 
