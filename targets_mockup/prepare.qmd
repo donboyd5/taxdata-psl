@@ -55,7 +55,7 @@ glimpse(tabmeta)
 #| label: CAUTION-download-irs-spreadsheets
 #| eval: false
 
-# CAUTION: only re-download spreadsheets (set eva: true) if they have changed or been deleted
+# CAUTION: only re-download spreadsheets (set eval: true) if they have changed or been deleted
 
 tabmeta
 
