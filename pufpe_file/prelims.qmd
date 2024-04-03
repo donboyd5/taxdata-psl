@@ -1,0 +1,137 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Preliminaries
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+library(jsonlite)
+library(tidyjson)
+
+```
+
+```{=html}
+<!-- links
+
+
+-->
+```
+
+
+```{r}
+#| label: constants
+
+tddir <- r"(E:\data\taxdata-psl)"
+
+wrp <- r"(c:\Program Files\WinRAR\WinRAR.exe)"
+pez <- path(tddir, "tax_microdata.csv.gz")
+
+# saveRDS(allvars, here::here("data", "tcvars.rds"))
+
+```
+
+
+## Download files (not implemented yet)
+
+```{r}
+#| label: download-files
+#| eval: false
+
+# only update when the pe files change
+gdfolder <- "https://drive.google.com/drive/u/0/folders/1rprMf8noDkXd48OpwXCFBbFOpuyldaKZ"
+
+# https://drive.google.com/file/d/11sFN2KxikUFeDWkdhhfLbnihGD6pB4-0/view?usp=drive_link
+
+gzname <- "tax_microdata_2015.csv.gz"
+upath <- path(gdfolder, gzname)
+upath <- "https://drive.google.com/file/d/11sFN2KxikUFeDWkdhhfLbnihGD6pB4-0/view?usp=drive_link"
+download.file(url=upath, destfile = path(tddir, gzname), mode="wb")
+
+```
+
+
+## Create stacked file
+```{r}
+#| label: get-data
+
+# gzname <- "tax_microdata_2015.csv.gz"
+
+gzpre <- "tax_microdata_"
+gzsfx <- ".csv.gz"
+gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
+gzpaths <- path(tddir, gzfiles)
+
+df1 <- vroom(gzpaths, id="fname")
+df1 <- df1 |> 
+  mutate(year=str_extract(fname, "\\d+") |> as.integer()) |> 
+  relocate(year, .after=fname)
+glimpse(df1)
+ns(df1)
+
+```
+
+
+## Explore
+
+### Totals by year
+
+```{r}
+#| label: explore-aggregate
+# options(max.print=20)
+
+
+df1 |> 
+  summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=year) |> 
+  arrange(year) |> 
+  mutate(avgwage=wages / wt,
+         pchwt=wt / lag(wt) - 1,
+         pchwages=wages / lag(wages) - 1,
+         pchavgwage=avgwage / lag(avgwage) - 1) |> 
+  gt() |> 
+  fmt_number(columns=c(n, wt, avgwage),
+             # scale=1e-9,
+             decimals=0) |> 
+  fmt_number(columns=c(wages),
+             scale=1e-9,
+             decimals=0) |> 
+  fmt_percent(columns=starts_with("pch"),
+              decimals=1)
+
+```
+
+
+### Totals by year and filer status
+
+```{r}
+#| label: explore-filer-status
+
+df1 |> 
+  summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year, is_tax_filer)) |> 
+  arrange(year) |> 
+  mutate(avgwage=wages / wt,
+         pchwt=wt / lag(wt) - 1,
+         pchwages=wages / lag(wages) - 1,
+         pchavgwage=avgwage / lag(avgwage) - 1,
+         .by=is_tax_filer) |> 
+  gt() |> 
+  fmt_number(columns=c(n, wt, avgwage),
+             # scale=1e-9,
+             decimals=0) |> 
+  fmt_number(columns=c(wages),
+             scale=1e-9,
+             decimals=0) |> 
+  fmt_percent(columns=starts_with("pch"),
+              decimals=1)
+
+## |> opt_stylize(style = 1) 
+
+```
+

@@ -1,0 +1,7 @@
+# Introduction
+
+-   Examine flat files for multiple years
+
+-   Note: Would be good to have them run through tax-calculator in an upcoming iteration
+
+-   The R code that examines the flat files for multiple years [is on GitHub](https://github.com/donboyd5/taxdata-psl) in the pufpe_file folder.
