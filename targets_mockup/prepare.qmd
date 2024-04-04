@@ -142,7 +142,7 @@ get_colmap <- function(tab){
 allcols <- xlcols(400) # get a large number of potential excel column names
 ht(allcols)
 
-get_rowmap("tab11")
+get_rowmap("tab21")
 
 
 # tabs <- c("tab11", "tab12")
@@ -215,6 +215,9 @@ ptargets_nested <- tabget |>
            list(), .by=c(fname, datatype))
 ptargets_nested
 ptargets_nested |> unnest(col=c(targets))
+ptargets_nested |> 
+  filter(table=="tab21", datatype=="taxable") |> 
+  unnest(col=c(targets))
 
 ptargets <- ptargets_nested |> 
   select(table, datatype, year, fname, targets, table_description) |>
