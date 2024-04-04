@@ -1,7 +1,9 @@
 
-# get_mtasub <- function(fips){
-#   ifelse(fips %in% constants$nycfips, "nyc", "suburbs")
-# }
+ht <- function (df, nrecs = 6)
+{
+  print(utils::head(df, nrecs))
+  print(utils::tail(df, nrecs))
+}
 
 cut_labels <- function(breaks) {
   n <- length(breaks)

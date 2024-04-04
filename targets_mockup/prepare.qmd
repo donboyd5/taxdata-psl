@@ -10,9 +10,10 @@ editor_options:
 ## Load packages
 
 ```{r}
-#| label: includes
+#| label: setup
 
 source(here::here("r", "libraries.r"))
+source(here::here("r", "functions.r"))
 
 # E:\R_projects\projects\taxdata-psl\data\IRS spreadsheets
 
@@ -40,11 +41,13 @@ targfn <- "target_recipes.xlsx"
 
 df1 <- read_excel(path(dd, targfn), sheet="irs_downloads")
 
-tabmeta <- expand_grid(year=c(2015, 2021), df1) |> 
+tabmeta <- expand_grid(year=c(2015, 2021) |> as.integer(), df1) |> 
   mutate(fname=paste0(str_sub(year, 3, 4), fname_base),
          upath=paste0(baseurl, fname))
 
 glimpse(tabmeta)
+tabmeta |> 
+  select(1:3)
 
 ```
 
@@ -75,6 +78,8 @@ walk(tabmeta$upath, f) # walk through the list of paths, downloading and saving 
 ```{r}
 #| label: irs-functions
 
+# tab <- "tab11"
+
 get_rowmap <- function(tab){
   # reads the target_recipes.xlsx file to
   # get start and end row for key data for each year of a particular IRS spreadsheet
@@ -82,12 +87,13 @@ get_rowmap <- function(tab){
   # assumes dd (data directory) and targfn (targets filename) are in the environment
   sheet <- paste0(tab, "_map")
   read_excel(path(dd, targfn), sheet=sheet, range=cellranger::cell_rows(1:3)) |> 
-    pivot_longer(-rowtype, values_to = "rownum") |> 
+    pivot_longer(-rowtype, values_to = "xlrownum") |> 
+    separate_wider_delim(name, delim="_", names=c("datatype", "year")) |> 
     mutate(table=tab,
-           year=str_sub(name, -4, -1) |> as.integer(),
-           rownum=as.integer(rownum)) |> 
-    select(table, year, rowtype, rownum) |> 
-    arrange(table, year, desc(rowtype))
+           year=as.integer(year),
+           xlrownum=as.integer(xlrownum)) |> 
+    select(table, datatype, year, rowtype, xlrownum) |> 
+    arrange(table, year, datatype, desc(rowtype))
 }
 
 xlcols <- function(n) {
@@ -110,13 +116,14 @@ get_colmap <- function(tab){
   # assumes dd (data directory), targfn (targets filename), and allcols are in the environment
   sheet <- paste0(tab, "_map")
   col_map <- read_excel(path(dd, targfn), sheet=sheet, skip=3) |> 
-    pivot_longer(starts_with("column_"), values_to = "column_letter") |> 
+    pivot_longer(-c(vname, description, units, notes), values_to = "xlcolumn") |> 
+    separate_wider_delim(name, delim="_", names=c("datatype", "year")) |> 
     mutate(table=tab,
-           year=str_sub(name, -4, -1) |> as.integer(),
-           column_num=match(column_letter, allcols)) |> 
-    select(table, year, column_num, column_letter, vname, description, units, notes) |> 
-    filter(!is.na(column_letter), !is.na(vname)) |> 
-    arrange(table, year, column_num)
+           year=as.integer(year),
+           xl_colnumber=match(xlcolumn, allcols)) |> 
+    select(table, datatype, year, xl_colnumber, xlcolumn, vname, description, units, notes) |> 
+    filter(!is.na(xlcolumn), !is.na(vname)) |> 
+    arrange(table, datatype, year, xl_colnumber)
   col_map
 }
 
@@ -135,6 +142,8 @@ get_colmap <- function(tab){
 allcols <- xlcols(400) # get a large number of potential excel column names
 ht(allcols)
 
+get_rowmap("tab11")
+
 
 # tabs <- c("tab11", "tab12")
 # tabs <- c("tab11", "tab12", "tab14")
@@ -144,7 +153,7 @@ tabs <- c("tab11", "tab12", "tab14", "tab21")
 tabrows <- tabs |> 
   purrr::map(get_rowmap) |> 
   list_rbind() |> 
-  pivot_wider(names_from = rowtype, values_from = rownum)
+  pivot_wider(names_from = rowtype, values_from = xlrownum)
 tabrows
 
 tabcols <- tabs |> 
@@ -153,10 +162,10 @@ tabcols <- tabs |>
 tabcols
 
 tabcols_nested <- tabcols |> 
-  summarise(maxcol=max(column_num),
-            column_letters=list(column_letter), 
+  summarise(maxcol=max(xl_colnumber),
+            column_letters=list(xlcolumn), 
             vnames=list(vname),
-            .by=c(table, year))
+            .by=c(table, datatype, year))
 tabcols_nested
 
 # tabcols_nested |>
@@ -167,14 +176,15 @@ tabget <- tabmeta |>
   filter(table %in% tabs) |> 
   select(table, year, fname, table_description) |> 
   left_join(tabrows, by = join_by(table, year)) |> 
-  left_join(tabcols_nested, by = join_by(table, year))
+  left_join(tabcols_nested, by = join_by(table, datatype, year))
 
 # fname <- "15in11si.xls"
 # startrow <- 10; endrow <- 29; maxcol <- 7; column_letters <- list(c("A", "B", "D", "G")); colnames <- list(c("x1", "x2", "x3", "x4"))
 
 
 get_irsdata <- function(fname, startrow, endrow, maxcol, column_letters, vnames){
-  # a single file, a single year
+  # a single file, a single year, a single datatype (filers or taxable)
+  # print(fname); print(datatype)
   fpath <- path(irsd, fname)
   
   # read relevant rows, but all columns from the first column through the last in columns
@@ -190,35 +200,34 @@ get_irsdata <- function(fname, startrow, endrow, maxcol, column_letters, vnames)
   # keep desired columns, substitute the passed-in column names for letters, and pivot
   df2 <- df1 |> 
     select(all_of(unlist(column_letters))) |> 
-    setNames(unlist(vnames)) |> 
-    mutate(rownum=row_number()) |> 
-    pivot_longer(cols=-c(rownum, incrange), names_to = "vname", values_to = "ptarget") |> 
+    setNames(unlist(vnames)) |>
+    mutate(xlrownum=startrow:endrow, incsort=row_number()) |> 
+    pivot_longer(cols=-c(incsort, xlrownum, incrange), names_to = "vname", values_to = "ptarget") |> 
     mutate(ptarget=as.numeric(ptarget)) |>  # every column had better be a number stored as text!
-    relocate(rownum)
+    relocate(incsort, xlrownum)
   df2
 }
 
 
 ptargets_nested <- tabget |> 
-  # filter(row_number() == 1) |> 
-  mutate(targets=get_irsdata(fname, startrow, endrow, maxcol, column_letters, vnames) |> list(), .by=fname)
+  # filter(row_number() == 4) |> 
+  mutate(targets=get_irsdata(fname, startrow, endrow, maxcol, column_letters, vnames) |>
+           list(), .by=c(fname, datatype))
 ptargets_nested
 ptargets_nested |> unnest(col=c(targets))
 
 ptargets <- ptargets_nested |> 
-  mutate(year=as.integer(year)) |> 
-  select(table, year, fname, targets, table_description) |>
+  select(table, datatype, year, fname, targets, table_description) |>
   unnest(col=targets) |> 
-  left_join(tabcols |> select(table, year, column_letter, vname),
-            by = join_by(table, year, vname)) |> 
-  relocate(column_letter, .after=fname) |> 
-  arrange(table, year, vname, rownum)
+  left_join(tabcols |> select(table, datatype, year, xlcolumn, vname),
+            by = join_by(table, datatype, year, vname)) |> 
+  relocate(xlcolumn, xlrownum, .after=fname) |> 
+  arrange(table, year, vname, incsort)
 
 saveRDS(ptargets, here::here("data", "potential_targets.rds"))
 
 ptargets |> 
   write_csv(here::here("data", "potential_targets.csv"))
-
 
 
 ```
@@ -235,7 +244,8 @@ ptargets <- readRDS(here::here("data", "potential_targets.rds"))
 library(DT)
 # datatable(ptargets, options = list(scrollX = TRUE, scrollY = '400px', paging = TRUE))
 
-datatable(ptargets |> select(-table_description),
+datatable(ptargets |> 
+            select(-table_description),
           options = list(scrollX = TRUE, scrollY = '1500px', pageLength = 20),
           filter="top") |>
   formatCurrency(columns = c("ptarget"), currency="", digits=0)
