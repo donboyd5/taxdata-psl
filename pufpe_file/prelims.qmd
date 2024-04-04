@@ -15,6 +15,7 @@ editor_options:
 source(here::here("r", "libraries.r"))
 library(jsonlite)
 library(tidyjson)
+library(googledrive)
 
 ```
 
@@ -52,8 +53,13 @@ gdfolder <- "https://drive.google.com/drive/u/0/folders/1rprMf8noDkXd48OpwXCFBbF
 
 gzname <- "tax_microdata_2015.csv.gz"
 upath <- path(gdfolder, gzname)
-upath <- "https://drive.google.com/file/d/11sFN2KxikUFeDWkdhhfLbnihGD6pB4-0/view?usp=drive_link"
-download.file(url=upath, destfile = path(tddir, gzname), mode="wb")
+
+# permissions needed for the following (?)
+# drive_download(file=upath, path = path(tddir, gzname), overwrite = TRUE)
+
+# following does not work:
+# upath <- "https://drive.google.com/file/d/11sFN2KxikUFeDWkdhhfLbnihGD6pB4-0/view?usp=drive_link"
+# download.file(url=upath, destfile = path(tddir, gzname), mode="wb")
 
 ```
 

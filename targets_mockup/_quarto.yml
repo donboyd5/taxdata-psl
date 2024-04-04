@@ -1,6 +1,12 @@
 project:
   type: book
 
+execute:
+  eval: true
+  echo: true
+  output: true
+  freeze: false  # auto: during global project renders, re-render only when source changes
+
 book:
   title: "Getting enhanced PUF targets"
   subtitle: "Mockup in R"
@@ -33,17 +39,7 @@ format:
 editor_options:
   chunk_output_type: console
 
-execute:
-  eval: true
-  echo: true  # so we can have code folding
-  output: false
-  error: false
-  warning: false
-  message: false  # not sure if allowed
-  note: false  # not sure if allowed
-  freeze: false  # during global project renders, re-render only when source changes
-  
-  
+
 # renv-related commands
 # renv::snapshot()
 # renv::restore()

@@ -3,6 +3,7 @@
 # setup -------------------------------------------------------------------
 
 source(here::here("r", "libraries.r"))
+source(here::here("r", "functions.r"))
 library(jsonlite)
 library(tidyjson)
 

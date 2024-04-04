@@ -18,10 +18,10 @@ library(fredr)
 library(tidycensus)
 
 # boyd libraries
-library(btools)
-library(bdata)
-library(bggtools)
-library(bmaps)
+# library(btools)
+# library(bdata)
+# library(bggtools)
+# library(bmaps)
 
 # graphics
 library(scales)
