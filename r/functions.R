@@ -5,6 +5,11 @@ ht <- function (df, nrecs = 6)
   print(utils::tail(df, nrecs))
 }
 
+ns <- function (df) 
+{
+  names(df) |> sort()
+}
+
 cut_labels <- function(breaks) {
   n <- length(breaks)
   labels <- character(n - 1)

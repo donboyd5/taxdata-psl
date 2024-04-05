@@ -1,6 +1,4 @@
 - source: project
-  quarto-pub:
-    - id: 92ad302c-0e3d-4267-bf77-834d2207052f
-      url: 'https://donboyd5.quarto.pub/puf-policy-engine-files'
-    - id: 4d1ec77c-ef36-4e53-81a1-0f63585831b6
-      url: 'https://donboyd5.quarto.pub/v2'
+  netlify:
+    - id: e09cb922-9bbf-42fc-a634-a9c4e3cb9529
+      url: 'https://pufpe-files.netlify.app'

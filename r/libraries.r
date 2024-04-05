@@ -16,6 +16,12 @@ library(RColorBrewer)
 library(RcppRoll)
 library(fredr)
 library(tidycensus)
+library(googledrive)
+library(arrow)
+
+library(jsonlite)
+library(tidyjson)
+
 
 # boyd libraries
 # library(btools)

@@ -5,17 +5,18 @@ execute:
   eval: true
   echo: true
   output: true
-  freeze: false  # auto: during global project renders, re-render only when source changes
+  freeze: auto  # auto: during global project renders, re-render only when source changes
 
 book:
-  title: "PUF-Policy Engine files"
+  title: "Examine PUF-Policy Engine files"
   subtitle: "Multiple years"
   # author: "Don Boyd"
   date: today
   date-format: long
   chapters:
     - index.qmd
-    - prelims.qmd
+    - prepare_database.qmd
+    - examine_2015.qmd
     # - analysis.qmd
     # - part: "Revenue options"
     #   chapters:

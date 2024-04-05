@@ -1,0 +1,169 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Analysis of 2015
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+pufpe <- open_dataset(dpq)
+
+```
+
+
+```{r}
+#| label: get-tc-vars
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+```
+
+
+```{r}
+#| label: get-targets
+
+ptargets <- readRDS(here::here("data", "potential_targets.rds"))
+# glimpse(ptargets)
+
+checkvals <- ptargets |> 
+  filter(year==2015) |> 
+  select(table, datatype, incsort, incrange, vname, irs=ptarget)
+
+```
+
+
+
+```{r}
+#| label: get-pufpe
+#| output: false
+
+# use this when we have year on the data files, but not until then
+# pufpe <- open_dataset(
+#   # sources = fs::path(dyfiles, "tax_microdata_2015.csv.gz"),
+#   sources = dyfiles, 
+#   col_types = schema(ISBN = string()),
+#   format = "csv"
+# )
+
+pufpe <- open_dataset(dpq)
+
+pufpe
+pufpe |> glimpse()
+pufpe |> ns()
+count(pufpe, FLPDYR) |> collect()
+count(pufpe, year) |> collect()
+
+pufpe |> 
+  summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year, is_tax_filer)) |> 
+  arrange(year) |> 
+  collect()
+
+p2015 <- pufpe |> 
+  filter(year==2015) |> 
+  collect()
+
+```
+
+## Number of returns, and AGI amount, by AGI range
+
+```{r}
+#| label: income-cuts
+
+# what agi ranges are in the targets file?
+# count(checkvals |> filter(table=="tab11"), vname)
+# checkvals |> 
+#   filter(table=="tab11", datatype=="filers", vname=="nret_all", incsort >1)
+
+ycuts <- c(-Inf, 1, 
+           seq(5e3, 30e3, 5e3),
+           40e3, 50e3, 75e3, 100e3,
+           200e3, 500e3,
+           1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+```
+
+
+```{r}
+#| label: number-returns
+
+tabdata <- p2015 |>
+  filter(is_tax_filer==1) |> 
+  mutate(ycut=cut(c00100, ycuts, right=FALSE),
+         incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
+  summarise(calc=sum(s006), .by=c(incsort, ycut)) |> 
+  left_join(checkvals |> 
+              filter(table=="tab11", datatype=="filers", vname=="nret_all") |> 
+              select(incsort, incrange, irs),
+            by = join_by(incsort)) |> 
+  select(incsort, ycut, incrange, irs, calc) |> 
+  arrange(incsort) |> 
+  janitor::adorn_totals() |> 
+  mutate(diff=calc - irs,
+         pdiff=diff / irs)
+
+tabdata |> 
+  select(-ycut) |> 
+  gt() |> 
+  tab_header(title = html("Number of returns"),
+             subtitle = html("Filers only")) |> 
+  fmt_number(columns=c(calc, irs, diff),
+             scale=1,
+             decimals=0) |> 
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+  
+```
+
+
+
+```{r}
+#| label: agi-sum
+
+tabdata <- p2015 |>
+  filter(is_tax_filer==1) |> 
+  mutate(ycut=cut(c00100, ycuts, right=FALSE),
+         incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
+  summarise(calc=sum(s006 * c00100), .by=c(incsort, ycut)) |> 
+  left_join(checkvals |> 
+              filter(table=="tab11", datatype=="filers", vname=="agi") |> 
+              select(incsort, incrange, irs) |> 
+              mutate(irs=irs * 1000),
+            by = join_by(incsort)) |> 
+  select(incsort, ycut, incrange, irs, calc) |> 
+  arrange(incsort) |> 
+  janitor::adorn_totals() |> 
+  mutate(diff=calc - irs,
+         pdiff=diff / irs)
+
+tabdata |> 
+  select(-ycut) |> 
+  gt() |> 
+  tab_header(title = html("Total AGI, $ billions"),
+             subtitle = html("Filers only")) |> 
+  fmt_number(columns=c(calc, irs, diff),
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+  
+```
+
+
+
