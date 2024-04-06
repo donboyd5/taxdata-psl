@@ -4,7 +4,11 @@
 
 tddir <- r"(E:\data\taxdata-psl)"
 dyfiles <- fs::path(tddir, "year_files")
+dtdfiles <- fs::path(tddir, "tc_taxdata")
+
 dpq <- fs::path(tddir, "parquet")
+dpqpufpe <- fs::path(dpq, "pufpe")
+dpqtctd <- fs::path(dpq, "tctd")
 
 wrp <- r"(c:\Program Files\WinRAR\WinRAR.exe)"
 pez <- path(tddir, "tax_microdata.csv.gz")

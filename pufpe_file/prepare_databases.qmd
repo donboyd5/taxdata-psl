@@ -57,17 +57,74 @@ upath <- path(gdfolder, gzname)
 ```
 
 
-## Create arrow database out of zipped csv files
+## Create arrow databases out of zipped csv files
+
+
+### Tax-calculator taxdata files
 
 ```{r}
-#| label: get-data
+#| label: get-tctd-data
+#| eval: false  # only eval when data have changed
+
+## read the files ----
+# renamed original files from Martin from td15.zip to td15_pw.zip (for password, etc.)
+gzpre <- "td"
+gzsfx <- ".zip"
+gzfiles <- paste0(gzpre, c(15, 21, 23), gzsfx)
+(gzpaths <- path(dtdfiles, gzfiles))
+
+# use this when we have year on the data files, but not until then
+# tctd <- open_dataset(
+#   # sources = fs::path(dyfiles, "tax_microdata_2015.csv.gz"),
+#   sources = gzpaths,
+#   col_types = schema(ISBN = string()),
+#   format = "csv"
+# )
+# count(tctd, FLPDYR) |> collect()
+
+df1 <- vroom(gzpaths, id="fname")
+ns(df1)
+count(df1, fname, FLPDYR)
+
+df1 <- df1 |> 
+  mutate(year=FLPDYR |> as.integer()) |>
+  relocate(year, .after=fname)
+glimpse(df1)
+ns(df1)
+
+# system.time(saveRDS(df1, here::here("data", "ystacked.rds"))) # 22 secs
+
+# save as arrow database
+a <- proc.time()
+df1 |>
+  group_by(year) |>
+  write_dataset(path = dpqtctd, format = "parquet", existing_data_behavior = "overwrite")
+b <- proc.time()
+b - a # 26 secs
+
+# how big? about same as .gz files
+tibble(
+  files = list.files(dpqtctd, recursive = TRUE),
+  size_MB = file.size(file.path(dpqtctd, files)) / 1024^2
+)
+
+# all we need to get the data is 
+# tctd <- open_dataset(dpqtctd)
+glimpse(tctd)
+
+
+```
+
+
+```{r}
+#| label: get-pufpe-data
 #| eval: false  # only eval when data have changed
 
 ## read the files ----
 gzpre <- "tax_microdata_"
 gzsfx <- ".csv.gz"
 gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
-gzpaths <- path(dyfiles, gzfiles)
+(gzpaths <- path(dyfiles, gzfiles))
 
 df1 <- vroom(gzpaths, id="fname")
 ns(df1)
@@ -86,18 +143,19 @@ ns(df1)
 a <- proc.time()
 df1 |>
   group_by(year) |>
-  write_dataset(path = dpq, format = "parquet", existing_data_behavior = "overwrite")
+  write_dataset(path = dpqpufpe, format = "parquet", existing_data_behavior = "overwrite")
 b <- proc.time()
 b - a # 24 secs
 
 # how big? about same as .gz files
 tibble(
-  files = list.files(dpq, recursive = TRUE),
-  size_MB = file.size(file.path(dpq, files)) / 1024^2
+  files = list.files(dpqpufpe, recursive = TRUE),
+  size_MB = file.size(file.path(dpqpufpe, files)) / 1024^2
 )
 
 # all we need to get the data is 
-# pufpe <- open_dataset(dpq)
+# pufpe <- open_dataset(dpqpufpe)
+# glimpse(pufpe)
 
 
 ```
