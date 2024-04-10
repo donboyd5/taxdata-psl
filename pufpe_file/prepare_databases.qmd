@@ -167,8 +167,9 @@ Simple summary
 
 ```{r}
 #| label: simple-summary
+#| #| eval: false  # only eval when data have changed
 
-pufpe <- open_dataset(dpq)
+pufpe <- open_dataset(dpqpufpe)
 
 ycuts <- c(-Inf, -1e-99, 0, 25e3, 50e3, 100e3, 200e3, 500e3, 1e6, Inf)
 
@@ -179,7 +180,7 @@ ycuts <- c(-Inf, -1e-99, 0, 25e3, 50e3, 100e3, 200e3, 500e3, 1e6, Inf)
 tabdata <- pufpe |> 
   filter(year==2015) |> 
   collect() |> 
-  mutate(agirange=cut(c00100, ycuts)) |> # cut is not supported in Arrow
+  mutate(agirange=cut(c00100, ycuts)) |> # cut is not supported in Arrow so do this after collect
   summarise(n=n(), nret=sum(s006), taxbc=sum(taxbc * s006), .by=c(year, agirange))
 
 # tabdata |> 

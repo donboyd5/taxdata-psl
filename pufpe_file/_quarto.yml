@@ -15,8 +15,8 @@ book:
   date-format: long
   chapters:
     - index.qmd
-    - prepare_database.qmd
-    - examine_2015.qmd
+    - prepare_databases.qmd
+    - all3.qmd
     # - analysis.qmd
     # - part: "Revenue options"
     #   chapters:

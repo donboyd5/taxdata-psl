@@ -1,0 +1,266 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Compare PUF-Policy Engine and taxdata to IRS
+
+-   pufpe -- PUF-Policy Engine
+-   tctd -- Tax-Calculator / Taxdata
+-   irs -- IRS aggregates
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+# pufpe <- open_dataset(dpqpufpe)
+
+```
+
+
+```{r}
+#| label: get-tc-vars
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+```
+
+
+```{r}
+#| label: get-targets
+
+ptargets <- readRDS(here::here("data", "potential_targets.rds"))
+# glimpse(ptargets)
+
+# checkvals <- ptargets |> 
+#   filter(year==2015) |> 
+#   select(table, datatype, incsort, incrange, vname, irs=ptarget)
+
+years <- c(2015, 2021)
+
+irs_tab11 <- ptargets |> 
+  filter(year %in% years, 
+         table=="tab11", 
+         datatype=="taxable",
+         incsort > 1,
+         vname %in% c("agi", "nret_all")) |> 
+  select(year, incsort, incrange, vname, value=ptarget) |> 
+  mutate(file="irs",
+         vname=ifelse(vname=="nret_all", "nret", vname),
+         value=ifelse(vname=="agi", value * 1000, value))
+
+```
+
+
+
+```{r}
+#| label: get-tctd
+#| output: false
+
+# use this when we have year on the data files, but not until then
+# pufpe <- open_dataset(
+#   # sources = fs::path(dyfiles, "tax_microdata_2015.csv.gz"),
+#   sources = dyfiles, 
+#   col_types = schema(ISBN = string()),
+#   format = "csv"
+# )
+
+tctd <- open_dataset(dpqtctd)
+
+# tctd
+# tctd |> glimpse()
+# tctd |> ns()
+# count(tctd, FLPDYR) |> collect()
+# count(tctd, year) |> collect()
+# 
+# tctd |> 
+#   summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year)) |> 
+#   arrange(year) |> 
+#   collect()
+
+```
+
+
+```{r}
+#| label: get-pufpe
+#| output: false
+
+# use this when we have year on the data files, but not until then
+# pufpe <- open_dataset(
+#   # sources = fs::path(dyfiles, "tax_microdata_2015.csv.gz"),
+#   sources = dyfiles, 
+#   col_types = schema(ISBN = string()),
+#   format = "csv"
+# )
+
+pufpe <- open_dataset(dpqpufpe)
+
+pufpe
+pufpe |> glimpse()
+pufpe |> ns()
+count(pufpe, FLPDYR) |> collect()
+count(pufpe, year) |> collect()
+
+pufpe |> 
+  summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year, is_tax_filer)) |> 
+  arrange(year) |> 
+  collect()
+
+```
+
+## Stack data
+```{r}
+#| label: stack
+
+years <- c(2015, 2021)
+
+stack <- bind_rows(
+   pufpe |>
+     filter(year %in% years) |> 
+     mutate(file="pufpe") |> 
+     collect(),
+   tctd |> 
+     filter(year %in% years) |> 
+     mutate(file="tctd") |> 
+     collect()
+  )
+
+taxpayers <- stack |> 
+  filter(taxbc > 0) |> 
+  select(file, year, s006, c00100)
+
+
+```
+
+
+
+
+
+## Number of returns, and AGI amount, by AGI range
+
+```{r}
+#| label: income-cuts
+
+# what agi ranges are in the targets file?
+# count(checkvals |> filter(table=="tab11"), vname)
+# checkvals |> 
+#   filter(table=="tab11", datatype=="filers", vname=="nret_all", incsort >1)
+
+ycuts <- c(-Inf, 1, 
+           seq(5e3, 30e3, 5e3),
+           40e3, 50e3, 75e3, 100e3,
+           200e3, 500e3,
+           1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+```
+
+
+```{r}
+#| label: tab-data
+#| output: false
+
+stub <- irs_tab11 |> 
+  select(year, vname, incsort, incrange) |> 
+  distinct() |> 
+  crossing(file=c("irs", "tctd", "pufpe"))
+count(stub, year, file, incsort, incrange)
+
+
+collapse <- taxpayers |>
+  mutate(ycut=cut(c00100, ycuts, right=FALSE),
+         incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
+  summarise(nret = sum(s006), 
+            agi = sum(s006*c00100),
+            .by=c(file, year, incsort, ycut)) |>
+  pivot_longer(cols=c(nret, agi), names_to = "vname")
+
+dflong <- stub |> 
+  filter(file!="irs") |> 
+  left_join(collapse |> select(-ycut), join_by(year, vname, incsort, file)) |> 
+  bind_rows(irs_tab11)
+
+glimpse(dflong)
+count(dflong, incsort, incrange)
+count(dflong, vname, year, file)
+
+# 2021 pufpe does not have c00100 (which I made up) less than 1
+
+```
+
+
+```{r}
+#| label: tab-function
+
+tab <- function(year, vname, title, scale=1, decimals=0){
+  tabdata <- dflong |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, file, value) |> 
+    arrange(incsort) |> 
+    pivot_wider(names_from = file) |> 
+    select(incsort, incrange, irs, pufpe, tctd) |> 
+    adorn_totals() |> 
+    mutate(diff_pufpe=pufpe - irs,
+           diff_tctd=tctd - irs,
+           pdiff_pufpe=diff_pufpe / irs,
+           pdiff_tctd=diff_tctd / irs)
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
+             scale=scale,
+             decimals=decimals) |>
+  fmt_percent(columns=contains("pdiff"),
+             scale=1,
+             decimals=1)
+  tab
+}
+
+# tab(2015, "nret")
+
+```
+
+
+## Number of returns 2015 and 2021
+
+```{r}
+tab(2015, "nret", title="Number of returns (thousands)", scale=1e-3, decimals=1)
+
+```
+
+
+```{r}
+tab(2021, "nret", title="Number of returns (thousands)", scale=1e-3, decimals=1)
+
+```
+
+
+## AGI 2015 and 2021
+
+
+```{r}
+
+tab(2015, "agi", title="Adjusted gross income ($ billions)", scale=1e-9, decimals=1)
+
+```
+
+
+```{r}
+tab(2021, "agi", title="Adjusted gross income ($ billions)", scale=1e-9, decimals=1)
+
+```
+
+
+
