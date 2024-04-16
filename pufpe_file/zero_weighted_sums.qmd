@@ -1,0 +1,175 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Find Variables in PUF-PolicyEngine Data That Have Weighted Sums of Zero
+
+I examine 2015 because it allows me to compare to the raw PUF, from which the PUF-PolicyEngine draws its tax filers. If variables are zero in PUF-PolicyEngine but nonzero in the PUF, However, inspection shows that zero-valued variables in 2015 are also zero-valued in other years.
+
+Compare to other files:
+
+-   pufpe -- PUF-Policy Engine vintage 4/10/2024, which is a 2023 hybrid file based on CPS and puf.csv, backcasted to 2015
+-   tctd -- Tax-Calculator / taxdata vintage 4/5/2024 -- based on puf.csv from taxdata, grown to 2015 with default Tax-Calculator assumptions and methods
+-   puf2015 -- Raw puf for 2015 (as provided by IRS SOI)
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+```
+
+## Get various data files
+
+```{r}
+#| label: get-variable-labels
+#| output: false
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+count(utcvars, vtype)
+
+invars <- utcvars |> 
+  filter(vtype=="read") |> 
+  pull(vname)
+
+```
+
+
+```{r}
+#| label: get-puf2015
+#| output: false
+
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+puf <- vroom(ppath)
+puf2 <- puf |> 
+  lcnames() |> 
+  mutate(year=2015, s006=s006 / 100)
+
+glimpse(puf2)
+# summary(puf2)
+# skim(puf2)
+
+```
+
+
+```{r}
+#| label: get-stack-data
+#| output: false
+
+tctd <- open_dataset(dpqtctd)
+pufpe <- open_dataset(dpqpufpe)
+
+# quick check on e26270
+# tctd |> 
+#   select(year, s006, e26270) |> 
+#   summarise(n=n(), wtdn=sum(s006), e26270=sum(e26270 * s006), .by=year) |> 
+#   collect()
+# 
+# pufpe |> 
+#   select(year, s006, e26270) |> 
+#   summarise(n=n(), wtdn=sum(s006), e26270=sum(e26270 * s006), .by=year) |> 
+#   collect()
+
+ykeep <- 2015
+
+stack <- bind_rows(
+  pufpe |> 
+    filter(year==ykeep) |> 
+    select(year, any_of(invars)) |> 
+    mutate(file="pufpe") |> 
+    collect(),
+  tctd |> 
+    filter(year==ykeep) |> 
+    select(year, any_of(invars)) |> 
+    mutate(file="tctd") |> 
+    collect(),
+  puf2 |> 
+    select(year, any_of(invars)) |> 
+    mutate(file="puf2015"))
+
+glimpse(stack)
+
+```
+
+
+```{r}
+#| label: get-weighted-sums
+#| output: false
+
+wsums <- stack |> 
+  select(file, year, s006, starts_with("e", ignore.case=FALSE), starts_with("p", ignore.case=FALSE)) |> 
+  pivot_longer(-c(file, year, s006)) |> 
+  filter(!str_detect(name, "_")) |> 
+  summarise(wtdsum=sum(value * s006), .by=c(file, year, name)) |> 
+  pivot_wider(names_from = file, values_from = wtdsum)
+wsums
+
+```
+
+## Show variables where PUF-PolicyEngine weighted sums are zero
+
+```{r}
+#| label: show-zero-values
+
+wsums2 <- wsums |> 
+  left_join(utcvars |> 
+              select(name=vname, desc),
+            by = join_by(name)) |> 
+  mutate(adiff=abs(pufpe - puf2015)) |> 
+  arrange(desc(adiff))
+
+wsums3 <- wsums2 |> 
+  filter(pufpe==0) |>
+  mutate(rank=row_number()) |> 
+  select(rank, name, tctd, puf2015, pufpe, adiff, desc)
+
+wsums3 |> 
+  gt() |> 
+  tab_header(title = html("'e' and 'p' variables that have zero values in the 2015 PUF-PolicyEngine file"),
+             subtitle="Compared to raw 2015 PUF and 2015 taxdata file, $ billions, sorted by descending absolute (pufpe - puf2015)") |> 
+  fmt_number(columns = -c(rank, name, desc),
+             scale=1e-9,
+             decimals=1) 
+
+```
+
+## Check zero-valued PUF-PolicyEngine variables in all years
+
+Do the PUF-PolicyEngine variables that have zero weighted-sums in 2015 have zero weighted-sums in all years?
+
+```{r}
+#| label: all-years
+
+zvars <- wsums3$name
+
+pufpe |>
+  select(year, s006, all_of(zvars)) |>
+  group_by(year) |> 
+  summarise(across(-s006, ~sum(.x * s006))) |>
+  ungroup() |> 
+  collect() |> 
+  pivot_longer(-year) |> 
+  pivot_wider(names_from = year) |> 
+  gt() |> 
+  tab_header(title = html("Weighted sums in the PUF-PolicyEngine file each year"),
+             subtitle=html("'e' and 'p' variables where weighted sums are zero in the 2015 PUF-PolicyEngine file"))
+
+
+```
+
+

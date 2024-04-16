@@ -146,8 +146,6 @@ taxpayers <- stack |>
 
 
 
-
-
 ## Number of returns, and AGI amount, by AGI range
 
 ```{r}

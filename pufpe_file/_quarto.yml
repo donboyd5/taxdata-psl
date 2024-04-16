@@ -16,6 +16,7 @@ book:
   chapters:
     - index.qmd
     - prepare_databases.qmd
+    - zero_weighted_sums.qmd
     - all3.qmd
     # - analysis.qmd
     # - part: "Revenue options"

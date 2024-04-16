@@ -126,26 +126,36 @@ gzsfx <- ".csv.gz"
 gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
 (gzpaths <- path(dyfiles, gzfiles))
 
-df1 <- vroom(gzpaths, id="fname")
+system.time(df1 <- vroom(gzpaths, id="fname"))
 ns(df1)
 
+# df1 <- vroom(gzpaths[1], id="fname")
+# ns(df1)
+
+
+# FOR THE 4/2/2024 VERSION ONLY ----
 # put name on file, and TEMPORARILY create c00100 and taxbc
-df1 <- df1 |> 
-  mutate(year=str_extract(fname, "\\d+") |> as.integer()) |> 
-  mutate(c00100=e00200 * 1.25, taxbc=.1 * c00100) |> # temporary
-  relocate(year, .after=fname)
-glimpse(df1)
-ns(df1)
+# df1 <- df1 |> 
+#   mutate(year=str_extract(fname, "\\d+") |> as.integer()) |> 
+#   mutate(c00100=e00200 * 1.25, taxbc=.1 * c00100) |> # temporary
+#   relocate(year, .after=fname)
+# glimpse(df1)
+# ns(df1)
 
 # system.time(saveRDS(df1, here::here("data", "ystacked.rds"))) # 22 secs
+
+# df2 <- df1 |> 
+#   select(FLPDYR=FLPDYR...13, RECID=RECID...2, is_tax_filer, s006=s006...12, MARS=MARS...3, c00100, e00200=e00200...6, taxbc) |> 
+#   mutate(year=FLPDYR)
 
 # save as arrow database
 a <- proc.time()
 df1 |>
-  group_by(year) |>
+  mutate(year=FLPDYR) |> 
+  group_by(FLPDYR) |>
   write_dataset(path = dpqpufpe, format = "parquet", existing_data_behavior = "overwrite")
 b <- proc.time()
-b - a # 24 secs
+b - a # 118 secs
 
 # how big? about same as .gz files
 tibble(
