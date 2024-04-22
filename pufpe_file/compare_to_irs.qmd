@@ -120,7 +120,11 @@ pufpe |>
 
 ```
 
-## Stack data
+
+## Prepare data for comparison to IRS spreadsheets for 2015 and 2021
+
+Stack pufpe and tctd files for 2015 and 2021 and create a taxpayers file. The taxpayers file can be collapsed by AGI range and compared to different IRS spreadsheet totals.
+
 ```{r}
 #| label: stack
 
@@ -137,16 +141,30 @@ stack <- bind_rows(
      collect()
   )
 
-taxpayers <- stack |> 
-  filter(taxbc > 0) |> 
-  select(file, year, s006, c00100)
+# ns(stack)
 
+stack2 <- stack |> 
+  mutate(irstottax = pmax(c09200 - refund, 0))
+
+cat("Quantiles of calculated IRS total tax:\n")
+
+stack2 |> 
+  summarise(x=quantile(irstottax) |> list(), .by=file) |> 
+  unnest_wider(col=x)
+
+# new definition of taxpayers based on issue 37
+# https://github.com/PSLmodels/tax-microdata-benchmarking/issues/37
+taxpayers <- stack2 |> 
+  filter(irstottax > 0) |> 
+  select(file, year, s006, c00100, irstottax)
 
 ```
 
 
+Define AGI cutpoints:
 
-## Number of returns, and AGI amount, by AGI range
+-   19 ranges for filers for all (?) tables, and for and taxpayers for Table 1.1
+-   15 ranges for taxpayers for Table 1.2, Table 1.4, and  Table 2.1
 
 ```{r}
 #| label: income-cuts
@@ -156,18 +174,72 @@ taxpayers <- stack |>
 # checkvals |> 
 #   filter(table=="tab11", datatype=="filers", vname=="nret_all", incsort >1)
 
-ycuts <- c(-Inf, 1, 
+
+# define IRS income cutpoints for 19 income groups and
+
+# use ycut19 for filers, all (?) IRS tables, and taxpayers tab11
+ycut19 <- c(-Inf, 1, 
            seq(5e3, 30e3, 5e3),
            40e3, 50e3, 75e3, 100e3,
            200e3, 500e3,
            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
 
+# use this for taxpayers in tables other than tab11
+ycut15 <- c(-Inf, 1, 
+           seq(5e3, 30e3, 5e3),
+           40e3, 50e3, 75e3, 100e3,
+           200e3, 500e3,
+           1e6, Inf)
+
+```
+
+Function to create comparison table
+
+```{r}
+#| label: tab-function
+
+tab <- function(data, year, vname, title, scale=1, decimals=0){
+  # create gt comparison table using a chosen variable
+  
+  tabdata <- data |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, file, value) |> 
+    arrange(incsort) |> 
+    pivot_wider(names_from = file) |> 
+    select(incsort, incrange, irs, pufpe, tctd) |> 
+    adorn_totals() |> 
+    mutate(diff_pufpe=pufpe - irs,
+           diff_tctd=tctd - irs,
+           pdiff_pufpe=diff_pufpe / irs,
+           pdiff_tctd=diff_tctd / irs)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
+             scale=scale,
+             decimals=decimals) |>
+  fmt_percent(columns=contains("pdiff"),
+             scale=1,
+             decimals=1)
+  tab
+}
+
+# tab(dflong, 2015, "nret")
+
 ```
 
 
+## Comparison to IRS Table 1.1
+
+Collapse data to appropriate income ranges.
+
 ```{r}
-#| label: tab-data
+#| label: collapse-tab11
 #| output: false
+
+# tab11 uses ycut19 for filers and for taxpayers
 
 stub <- irs_tab11 |> 
   select(year, vname, incsort, incrange) |> 
@@ -175,9 +247,8 @@ stub <- irs_tab11 |>
   crossing(file=c("irs", "tctd", "pufpe"))
 count(stub, year, file, incsort, incrange)
 
-
 collapse <- taxpayers |>
-  mutate(ycut=cut(c00100, ycuts, right=FALSE),
+  mutate(ycut=cut(c00100, ycut19, right=FALSE),
          incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
   summarise(nret = sum(s006), 
             agi = sum(s006*c00100),
@@ -193,40 +264,6 @@ glimpse(dflong)
 count(dflong, incsort, incrange)
 count(dflong, vname, year, file)
 
-# 2021 pufpe does not have c00100 (which I made up) less than 1
-
-```
-
-
-```{r}
-#| label: tab-function
-
-tab <- function(year, vname, title, scale=1, decimals=0){
-  tabdata <- dflong |> 
-    filter(year==!!year, vname==!!vname) |> 
-    select(incsort, incrange, file, value) |> 
-    arrange(incsort) |> 
-    pivot_wider(names_from = file) |> 
-    select(incsort, incrange, irs, pufpe, tctd) |> 
-    adorn_totals() |> 
-    mutate(diff_pufpe=pufpe - irs,
-           diff_tctd=tctd - irs,
-           pdiff_pufpe=diff_pufpe / irs,
-           pdiff_tctd=diff_tctd / irs)
-  tab <- tabdata |>
-    gt() |>
-    tab_header(title = html(title),
-               subtitle = html(paste0(vname, " -- ", year))) |>
-  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
-             scale=scale,
-             decimals=decimals) |>
-  fmt_percent(columns=contains("pdiff"),
-             scale=1,
-             decimals=1)
-  tab
-}
-
-# tab(2015, "nret")
 
 ```
 
@@ -234,13 +271,15 @@ tab <- function(year, vname, title, scale=1, decimals=0){
 ## Number of returns 2015 and 2021
 
 ```{r}
-tab(2015, "nret", title="Number of returns (thousands)", scale=1e-3, decimals=1)
+
+tab(dflong, 2015, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1)
 
 ```
 
 
 ```{r}
-tab(2021, "nret", title="Number of returns (thousands)", scale=1e-3, decimals=1)
+
+tab(dflong, 2021, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1)
 
 ```
 
@@ -250,13 +289,14 @@ tab(2021, "nret", title="Number of returns (thousands)", scale=1e-3, decimals=1)
 
 ```{r}
 
-tab(2015, "agi", title="Adjusted gross income ($ billions)", scale=1e-9, decimals=1)
+tab(dflong, 2015, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1)
 
 ```
 
 
 ```{r}
-tab(2021, "agi", title="Adjusted gross income ($ billions)", scale=1e-9, decimals=1)
+
+tab(dflong, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1)
 
 ```
 

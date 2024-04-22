@@ -123,21 +123,24 @@ glimpse(tctd)
 ## read the files ----
 gzpre <- "tax_microdata_"
 gzsfx <- ".csv.gz"
-gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
+# gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
+gzfiles <- paste0(gzpre, c(2015, 2021), gzsfx)
 (gzpaths <- path(dyfiles, gzfiles))
 
 system.time(df1 <- vroom(gzpaths, id="fname"))
 ns(df1)
 
-tmp <- vroom(gzpaths[1])
-ns(tmp)
-tmp |> 
-  select(RECID...4, starts_with("e00200.")) |> 
-  head()
+# fnum <- 8; gzpaths[fnum]; df1 <- vroom(gzpaths[fnum], id="fname"); df1 |> ncol()
 
-tmp |> 
-  select(RECID...4, starts_with("age_head.")) |> 
-  head()
+# tmp <- vroom(gzpaths[1])
+# ns(tmp)
+# tmp |> 
+#   select(RECID...4, starts_with("e00200.")) |> 
+#   head()
+# 
+# tmp |> 
+#   select(RECID...4, starts_with("age_head.")) |> 
+#   head()
 
 
 # df1 <- vroom(gzpaths[1], id="fname")
@@ -164,7 +167,6 @@ a <- proc.time()
 df1 |>
   mutate(year=FLPDYR) |> 
   group_by(FLPDYR) |>
-  rename(e00200=e00200...11)
   write_dataset(path = dpqpufpe, format = "parquet", existing_data_behavior = "overwrite")
 b <- proc.time()
 b - a # 118 secs
@@ -189,7 +191,7 @@ Simple summary
 
 ```{r}
 #| label: simple-summary
-#| #| eval: false  # only eval when data have changed
+#| eval: false  # only eval when data have changed
 
 pufpe <- open_dataset(dpqpufpe)
 
@@ -240,9 +242,10 @@ tabdata <- pufpe |>
 #| eval: false
 # options(max.print=20)
 
-df1 |> 
+pufpe |> 
   summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=year) |> 
   arrange(year) |> 
+  collect() |> 
   mutate(avgwage=wages / wt,
          pchwt=wt / lag(wt) - 1,
          pchwages=wages / lag(wages) - 1,

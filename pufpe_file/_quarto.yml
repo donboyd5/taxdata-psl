@@ -5,7 +5,7 @@ execute:
   eval: true
   echo: true
   output: true
-  freeze: auto  # auto: during global project renders, re-render only when source changes
+  freeze: false  # auto: during global project renders, re-render only when source changes
 
 book:
   title: "Examine PUF-Policy Engine files"
@@ -17,16 +17,14 @@ book:
     - index.qmd
     - prepare_databases.qmd
     - zero_weighted_sums.qmd
-    - all3.qmd
+    - irs_definitions.qmd
+    - compare_to_irs.qmd
     # - analysis.qmd
     # - part: "Revenue options"
     #   chapters:
     #   - options/summary.qmd
     #   - options/legislation_links.qmd
     #   - options/budget_bills.qmd
-    # - part: "Appendix"
-    #   chapters: 
-    #   - appendix.qmd
     
 # bibliography: references.bib
 
