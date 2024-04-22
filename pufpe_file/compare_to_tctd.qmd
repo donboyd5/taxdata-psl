@@ -1,0 +1,387 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Compare PUF-PolicyEngine flat file to Tax-Calculator / taxdata default file
+
+For now, focus on 2021.
+
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+library(htmltools)
+
+# pufpe <- open_dataset(dpqpufpe)
+
+```
+
+
+## Get data
+
+```{r}
+#| label: get-tc-vars
+#| output: false
+
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+# unique variable names
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+add_rows <- tribble(
+  ~vname, ~vtype, ~desc,
+  "irstottax", "calc", "Total tax as defined by IRS (approximate)"
+)
+
+utcvars <- bind_rows(utcvars, add_rows)
+utcvars |> filter(str_detect(vname, "irs"))
+
+```
+
+
+```{r}
+#| label: get-tctd
+#| output: false
+
+tctd <- open_dataset(dpqtctd)
+
+# tctd
+# tctd |> glimpse()
+# tctd |> ns()
+# count(tctd, FLPDYR) |> collect()
+# count(tctd, year) |> collect()
+# 
+# tctd |> 
+#   summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year)) |> 
+#   arrange(year) |> 
+#   collect()
+
+```
+
+
+```{r}
+#| label: get-pufpe
+#| output: false
+
+# use this when we have year on the data files, but not until then
+# pufpe <- open_dataset(
+#   # sources = fs::path(dyfiles, "tax_microdata_2015.csv.gz"),
+#   sources = dyfiles, 
+#   col_types = schema(ISBN = string()),
+#   format = "csv"
+# )
+
+pufpe <- open_dataset(dpqpufpe)
+
+pufpe
+pufpe |> glimpse()
+pufpe |> ns()
+count(pufpe, FLPDYR) |> collect()
+count(pufpe, year) |> collect()
+
+# pufpe |> 
+#   summarise(n=n(), wt=sum(s006), wages=sum(e00200 * s006), .by=c(year, is_tax_filer)) |> 
+#   arrange(year) |> 
+#   collect()
+
+```
+
+
+## Define AGI cutpoints
+
+-   19 ranges for filers for all (?) tables, and for and taxpayers for Table 1.1
+-   15 ranges for taxpayers for Table 1.2, Table 1.4, and  Table 2.1
+
+```{r}
+#| label: income-cuts
+#| output: false
+
+# what agi ranges are in the targets file?
+# count(checkvals |> filter(table=="tab11"), vname)
+# checkvals |> 
+#   filter(table=="tab11", datatype=="filers", vname=="nret_all", incsort >1)
+
+
+# define IRS income cutpoints for 19 income groups and
+
+# use ycut19 for filers, all (?) IRS tables, and taxpayers tab11
+ycut19 <- c(-Inf, 1, 
+           seq(5e3, 30e3, 5e3),
+           40e3, 50e3, 75e3, 100e3,
+           200e3, 500e3,
+           1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+# use this for taxpayers in tables other than tab11
+ycut15 <- c(-Inf, 1, 
+           seq(5e3, 30e3, 5e3),
+           40e3, 50e3, 75e3, 100e3,
+           200e3, 500e3,
+           1e6, Inf)
+
+```
+
+
+## Stack data for 2015 and 2021
+
+Stack pufpe and tctd files for 2015 and 2021 and calculate irs total tax concept.
+
+```{r}
+#| label: stack
+#| output: false
+
+years <- c(2015, 2021)
+
+stack <- bind_rows(
+   pufpe |>
+     filter(year %in% years) |> 
+     mutate(file="pufpe") |> 
+     collect(),
+   tctd |> 
+     filter(year %in% years) |> 
+     mutate(file="tctd") |> 
+     collect()
+  ) |> 
+  mutate(irstottax = pmax(c09200 - refund, 0),
+         taxpayer = irstottax > 0)
+ns(stack)
+
+
+# new definition of taxpayers based on issue 37
+# https://github.com/PSLmodels/tax-microdata-benchmarking/issues/37
+
+```
+
+## Identify variables to focus on (initially)
+
+```{r}
+#| label: identify-variables
+#| output: false
+
+utcvars
+
+utcvars |> 
+  filter(str_detect(desc, coll("tax ", ignore_case=TRUE)))
+
+# e17500
+
+incvars <- c("c00100", "c04800", "e00200", "e00300", "e00600", "e00900",
+             "e01500", "e01700", "e02400", "c02500")
+
+dedvars <- c("c04470", "qbided", "c17000", "c18300", "c21060")
+
+taxvars <- c("iitax", "niit", "othertaxes", "payrolltax", "refund", "taxbc", "irstottax")
+
+idvars <- quote(c(file, year, taxpayer, s006))
+dollarvars <- c(incvars, dedvars, taxvars)
+
+```
+
+
+```{r}
+#| label: data-subset
+#| output: false
+
+stacksub <- stack |> 
+  filter(year==2021) |> 
+  select(!!idvars, all_of(dollarvars))
+ns(stacksub)
+
+slong <- stacksub |> 
+  mutate(ycut=cut(c00100, ycut19, right=FALSE),
+         incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
+  pivot_longer(-c(!!idvars, ycut, incsort), names_to = "vname")
+
+collapse <- slong |> 
+  # filter(taxpayer) |> 
+  summarise(value=sum(s006 * value), .by = c(file, year, vname, incsort, ycut, taxpayer)) |> 
+  left_join(utcvars |> select(vname, desc), by = join_by(vname))
+
+# collapse |> 
+#   filter(file=="tctd", vname=="c00100", taxpayer) |> 
+#   summarise(n=n(), value=sum(value)) |> 
+#   kable()
+# 
+#  stack |> 
+#    filter(year==2021, file=="tctd") |> 
+#    select(year, file, s006, irstottax, taxpayer, c00100) |> 
+#    summarise(value=sum(s006 * c00100), .by=c(year, file, taxpayer)) |> 
+#    kable()
+
+# count(collapse, vname)
+ 
+```
+
+
+## Function to create comparison table
+
+```{r}
+#| label: tab-function
+#| output: false
+
+
+tab <- function(data, vname, year=2021){
+  # create gt comparison table using a chosen variable
+  vdesc <- utcvars |> 
+    filter(vname==!!vname) |> 
+    pull(desc)
+  
+  title <- paste0(vname, ": ", vdesc, " -- $ billions, IRS-defined taxpayers")
+  subtitle <- paste0("PUF--PolicyEngine Compared to Tax-Calculator--taxdata Default -- ", year)
+  
+  tabdata <- data |> 
+    filter(vname==!!vname, year==!!year, taxpayer) |> 
+    select(incsort, ycut, file, value) |> 
+    arrange(desc(file)) |> 
+    pivot_wider(names_from = file) |> 
+    arrange(incsort) |> 
+    adorn_totals() |> 
+    mutate(diff=pufpe - tctd,
+           pdiff=diff / tctd)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(subtitle)) |>
+  fmt_number(columns=c(tctd, pufpe, diff),
+             scale=1e-9,
+             decimals=2) |>
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+  tab
+}
+
+# tab(collapse, "e00200", 2021)
+# tab(collapse, "c00100", 2021)
+
+```
+
+
+Function to loop through variables and create tables.
+
+```{r}
+#| label: loop-function
+
+comp_loop <- function(vars){
+  # Loop through the sections and tables
+  for (i in seq_along(vars)) {
+    sectitle <- paste0(vars[i], ": ", utcvars$desc[utcvars$vname==vars[i]])
+    
+    cat(paste0("\n\n### ", sectitle, "\n"))
+    tbl <- tab(collapse, vars[i], 2021)
+    # print(as_raw_html(tbl), raw_html = TRUE)
+    print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
+  }
+}
+
+```
+
+
+## Loop through variables and create tables
+
+```{r}
+#| label: tab-loop-all
+#| output: asis
+#| echo: FALSE
+
+cat(paste0("\n\n## Income variables\n"))
+comp_loop(incvars)
+
+cat(paste0("\n\n## Deduction variables\n"))
+comp_loop(dedvars)
+
+cat(paste0("\n\n## Tax-related variables\n"))
+comp_loop(taxvars)
+
+
+```
+
+
+
+<!-- ## Prepare tables for income variables -->
+
+```{r}
+#| label: tab-loop-income
+#| output: asis
+#| echo: FALSE
+#| eval: FALSE
+
+# Loop through the sections and tables
+# comp_loop(incvars)
+
+
+# for (i in seq_along(incvars)) {
+#   sectitle <- paste0(incvars[i], ": ", utcvars$desc[utcvars$vname==incvars[i]])
+#   
+#   cat(paste0("\n\n### ", sectitle, "\n"))
+#   tbl <- tab(collapse, incvars[i], 2021)
+#   # print(as_raw_html(tbl), raw_html = TRUE)
+#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
+# }
+
+
+```
+
+
+<!-- ## Prepare tables for deduction variables -->
+
+```{r}
+#| label: tab-loop-deductions
+#| output: asis
+#| echo: FALSE
+#| eval: FALSE
+
+# comp_loop(dedvars)
+
+# Loop through the sections and tables
+# for (i in seq_along(dedvars)) {
+#   sectitle <- paste0(dedvars[i], ": ", utcvars$desc[utcvars$vname==dedvars[i]])
+#   
+#   cat(paste0("\n\n### ", sectitle, "\n"))
+#   tbl <- tab(collapse, dedvars[i], 2021)
+#   # print(as_raw_html(tbl), raw_html = TRUE)
+#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
+# }
+
+
+```
+
+
+
+
+<!-- ## Prepare tables for tax-related variables -->
+
+```{r}
+#| label: tab-loop-taxvars
+#| output: asis
+#| echo: FALSE
+#| eval: FALSE
+
+# comp_loop(taxvars)
+
+# Loop through the sections and tables
+# for (i in seq_along(taxvars)) {
+#   sectitle <- paste0(taxvars[i], ": ", utcvars$desc[utcvars$vname==taxvars[i]])
+#   
+#   cat(paste0("\n\n### ", sectitle, "\n"))
+#   tbl <- tab(collapse, taxvars[i], 2021)
+#   # print(as_raw_html(tbl), raw_html = TRUE)
+#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
+# }
+
+
+```
+

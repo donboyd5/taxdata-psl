@@ -1,6 +1,6 @@
 # Definitions
 
-## Definining taxable returns
+## Defining taxable returns
 
 We want to compare our data, by AGI range, to published IRS totals. Many of the IRS tables provide data on "taxable returns" so we want to be able to define a taxable return in our data in a way that matches the IRS definition, so that we can make proper comparisons.
 
