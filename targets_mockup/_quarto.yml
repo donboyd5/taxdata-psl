@@ -15,7 +15,7 @@ book:
   date-format: long
   chapters:
     - index.qmd
-    - definitions.qmd
+    # - definitions.qmd
     - prepare.qmd
     # - part: "Revenue options"
     #   chapters:

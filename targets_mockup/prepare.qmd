@@ -142,6 +142,7 @@ get_colmap <- function(tab){
 allcols <- xlcols(400) # get a large number of potential excel column names
 ht(allcols)
 
+get_rowmap("tab11")
 get_rowmap("tab21")
 
 
