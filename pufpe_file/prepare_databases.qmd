@@ -123,12 +123,28 @@ glimpse(tctd)
 ## read the files ----
 gzpre <- "tax_microdata_"
 gzsfx <- ".csv.gz"
-# gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
+gzfiles <- paste0(gzpre, 2015:2026, gzsfx)
+# gzfiles <- paste0(gzpre, c(2015, 2021), gzsfx)
+years <- setdiff(2015:2026, 2019:2020) # exclude any files that do not have same format
+gzfiles <- paste0(gzpre, years, gzsfx)
+
 gzfiles <- paste0(gzpre, c(2015, 2021), gzsfx)
 (gzpaths <- path(dyfiles, gzfiles))
 
 system.time(df1 <- vroom(gzpaths, id="fname"))
 ns(df1)
+
+dfa <- vroom(gzpaths[1], id="fname")
+dfb <- vroom(gzpaths[2], id="fname")
+
+setdiff(names(dfa), names(dfb))
+setdiff(names(dfb), names(dfa))
+names(dfa)
+names(dfb)
+
+which(names(dfa)=="c03260")
+
+df1 <- bind_rows(dfa, dfb)
 
 # fnum <- 8; gzpaths[fnum]; df1 <- vroom(gzpaths[fnum], id="fname"); df1 |> ncol()
 

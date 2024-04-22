@@ -50,16 +50,21 @@ ptargets <- readRDS(here::here("data", "potential_targets.rds"))
 
 years <- c(2015, 2021)
 
+#.. harmonize IRS and pub variable names ----
 irs_tab11 <- ptargets |> 
   filter(year %in% years, 
          table=="tab11", 
          datatype=="taxable",
          incsort > 1,
-         vname %in% c("agi", "nret_all")) |> 
+         vname %in% c("agi", "nret_all", "tottax")) |> 
   select(year, incsort, incrange, vname, value=ptarget) |> 
   mutate(file="irs",
-         vname=ifelse(vname=="nret_all", "nret", vname),
-         value=ifelse(vname=="agi", value * 1000, value))
+         vname=case_when(vname=="nret_all" ~ "nret",
+                         vname=="tottax" ~ "irstottax",
+                         .default = vname),
+         value=ifelse(!str_detect(vname, "nret"), value * 1000, value))
+
+count(irs_tab11, vname)
 
 ```
 
@@ -251,9 +256,10 @@ collapse <- taxpayers |>
   mutate(ycut=cut(c00100, ycut19, right=FALSE),
          incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
   summarise(nret = sum(s006), 
-            agi = sum(s006*c00100),
+            agi = sum(s006 * c00100),
+            irstottax=sum(s006 * irstottax),
             .by=c(file, year, incsort, ycut)) |>
-  pivot_longer(cols=c(nret, agi), names_to = "vname")
+  pivot_longer(cols=-c(file, year, incsort, ycut), names_to = "vname")
 
 dflong <- stub |> 
   filter(file!="irs") |> 
@@ -297,6 +303,22 @@ tab(dflong, 2015, "agi", title="Adjusted gross income ($ billions), taxable retu
 ```{r}
 
 tab(dflong, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1)
+
+```
+
+
+## Tax 2015 and 2021
+
+```{r}
+
+tab(dflong, 2015, "irstottax", title="Total tax ($ billions), Estimated IRS concept, taxable returns", scale=1e-9, decimals=1)
+
+```
+
+
+```{r}
+
+tab(dflong, 2021, "irstottax", title="Total tax ($ billions), Estimated IRS concept, taxable returns", scale=1e-9, decimals=1)
 
 ```
 
