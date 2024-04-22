@@ -1,0 +1,43 @@
+# Definitions
+
+## Definining taxable returns
+
+We want to compare our data, by AGI range, to published IRS totals. Many of the IRS tables provide data on "taxable returns" so we want to be able to define a taxable return in our data in a way that matches the IRS definition, so that we can make proper comparisons.
+
+IRS Publication 1304 is the primary source of IRS definitions used in their spreadsheets, and publishes many if not most of the tables in IRS spreadsheets, albeit in pdf form. As of this writing (4/17/2024) the latest version of Publication 1304 is for tax year 2020, although spreadsheets are available for 2021.
+
+### Total income tax
+
+IRS spreadsheets define taxable returns based on what they call "Total income tax". Here is the 2020 definition of total income tax, from the 2020 Publication 1304 (p.24), emphasis added:
+
+> Total income tax, as presented in these statistics, is the sum of income tax after credits (including the subtraction of refundable credits such as the EIC, American opportunity credit, net premium tax credit, and regulated investment company credit) plus the net investment income tax and tax on accumulation distribution of trusts from Form 4970 and is limited to zero (**it cannot be negative**). This calculation does not account for the impact of refundable credits, which have the potential effect of creating a negative tax liability for some taxpayers. **This was accounted for by subtracting the portion of refundable credits that offset all other taxes and the refundable portion of credits from total income tax.** Total income tax minus refundable credits increased 7.2 percent to \$1.6 trillion for 2020 (Figure E).
+
+IRS defines total income tax more formally in the glossary on p.321. They say clearly here that total income tax is what they use to define taxable returns:
+
+> (line 24, Form 1040—any excess advance premium tax credit (APTC) repayment on line 2, Schedule 2, + any Net Investment Income Tax on line 8b, Schedule 2, + any Form 4970 tax on line 8c, Schedule 2 - line 27, Form 1040 - line 28, Form 1040 - line 29, Form 1040 - line 12a, Schedule 3 - line 12c, Schedule 3 - portion on line 12d, Schedule 3, related to tax on repatriated income, limited to zero.) “Total income tax” was the sum of income tax after credits (including the subtraction of the excess APTC repayment, earned income credit, additional child tax credit, American opportunity credit, regulated investment company credit, health coverage credit, recovery rebate credit, and qualified sick and family leave credit) less any deferred tax on repatriated (965) income plus the Net Investment Income Tax from Form 8960 and the tax from Form 4970. It did not include any of the other taxes that made up total tax liability. **Total income tax was the basis for classifying returns as taxable or nontaxable.**
+
+### Taxable and nontaxable returns
+
+IRS defines taxable and nontaxable returns in Publication 1304 for 2020, p. 320 and gives further information on what is included in total income tax:
+
+> The taxable and nontaxable classification of a return for this report is determined by the presence of “**total income tax**.” Some returns classified as “nontaxable” may have had a liability for other taxes, such as excess advance premium tax credit (APTC) repayment, self-employment tax, uncollected employee Social Security and Medicare tax on tips, tax from recomputing prior-year investment credit, penalty taxes on individual retirement accounts, section 72 penalty taxes, household employment taxes, Additional Medicare Taxes, or golden parachute payments. **These taxes, however, were disregarded for the purposes of this classification, since four of the above taxes were considered Social Security (rather than income) taxes, and the remaining ones either were based on prior year’s income or were penalty taxes.** The APTC repayment was not an income tax but a repayment of money previously advanced to taxpayers for paying for health insurance purchased on a health care exchange. Net Investment Income Tax from Form 8960 was added to income tax after credits to create income tax.
+
+### Illustrative data
+
+The screenshot below from p.25 shows the numbers associated with these concepts for 2019 and 2020.
+
+![](images/clipboard-839693501.png)
+
+The next screenshot shows a breakdown of total income tax from the relevant 2020 IRS spreadsheet "20in11si.xls". (The file name decodes as 20=2020, in=individual income tax, 11=Table 1.1, si=selected items.) In our work we will use the corresponding files for 2015 and 2021.
+
+![](images/clipboard-440957368.png)
+
+### Conclusion: How we should define total income tax to be comparable with IRS
+
+When comparing taxable returns in our data to reported IRS aggregates for taxable returns, I believe we should define total income tax as the sum of all individual income taxes, excluding payroll taxes, taxes on prior year income, and penalty taxes, less nonrefundable credits, and ensure that the result is greater than or equal to zero. A taxable return is one where this amount is positive.
+
+I think (?) the relevant taxdata variables are iitax for the tax concept and c07100 for nonrefundable credits. My R code is therefore
+
+``` R
+irstottax = pmax(iitax - c07100, 0)
+```

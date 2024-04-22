@@ -157,7 +157,10 @@ Do the PUF-PolicyEngine variables that have zero weighted-sums in 2015 have zero
 
 zvars <- wsums3$name
 
-pufpe |>
+if(length(zvars) > 0){
+  print(paste0("zero-valued variables are: ", paste0(zvars, collapse = ", ")))
+  
+  pufpe |>
   select(year, s006, all_of(zvars)) |>
   group_by(year) |> 
   summarise(across(-s006, ~sum(.x * s006))) |>
@@ -168,6 +171,8 @@ pufpe |>
   gt() |> 
   tab_header(title = html("Weighted sums in the PUF-PolicyEngine file each year"),
              subtitle=html("'e' and 'p' variables where weighted sums are zero in the 2015 PUF-PolicyEngine file"))
+  } else print("No zero-valued variables to examine.")
+
 
 
 ```
