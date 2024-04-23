@@ -282,8 +282,9 @@ comp_loop <- function(vars){
     
     cat(paste0("\n\n### ", sectitle, "\n"))
     tbl <- tab(collapse, vars[i], 2021)
+    tbl2 <- htmltools::HTML(as_raw_html(tbl))
     # print(as_raw_html(tbl), raw_html = TRUE)
-    print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
+    print(tbl2, raw_html = TRUE)
   }
 }
 
@@ -292,22 +293,21 @@ comp_loop <- function(vars){
 
 ## Loop through variables and create tables
 
-```{r}
-#| label: tab-loop-all
-#| output: asis
-#| echo: FALSE
+<!-- ```{r} -->
+<!-- #| label: tab-loop-all -->
+<!-- #| output: asis -->
+<!-- #| echo: FALSE -->
 
-cat(paste0("\n\n## Income variables\n"))
-comp_loop(incvars)
+<!-- cat(paste0("\n\n## Income variables\n")) -->
+<!-- comp_loop(incvars) -->
 
-cat(paste0("\n\n## Deduction variables\n"))
-comp_loop(dedvars)
+<!-- cat(paste0("\n\n## Deduction variables\n")) -->
+<!-- comp_loop(dedvars) -->
 
-cat(paste0("\n\n## Tax-related variables\n"))
-comp_loop(taxvars)
+<!-- cat(paste0("\n\n## Tax-related variables\n")) -->
+<!-- comp_loop(taxvars) -->
 
-
-```
+<!-- ``` -->
 
 
 
@@ -317,21 +317,10 @@ comp_loop(taxvars)
 #| label: tab-loop-income
 #| output: asis
 #| echo: FALSE
-#| eval: FALSE
 
 # Loop through the sections and tables
-# comp_loop(incvars)
-
-
-# for (i in seq_along(incvars)) {
-#   sectitle <- paste0(incvars[i], ": ", utcvars$desc[utcvars$vname==incvars[i]])
-#   
-#   cat(paste0("\n\n### ", sectitle, "\n"))
-#   tbl <- tab(collapse, incvars[i], 2021)
-#   # print(as_raw_html(tbl), raw_html = TRUE)
-#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
-# }
-
+cat(paste0("\n\n## Income variables\n"))
+comp_loop(incvars)
 
 ```
 
@@ -342,24 +331,11 @@ comp_loop(taxvars)
 #| label: tab-loop-deductions
 #| output: asis
 #| echo: FALSE
-#| eval: FALSE
 
-# comp_loop(dedvars)
-
-# Loop through the sections and tables
-# for (i in seq_along(dedvars)) {
-#   sectitle <- paste0(dedvars[i], ": ", utcvars$desc[utcvars$vname==dedvars[i]])
-#   
-#   cat(paste0("\n\n### ", sectitle, "\n"))
-#   tbl <- tab(collapse, dedvars[i], 2021)
-#   # print(as_raw_html(tbl), raw_html = TRUE)
-#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
-# }
-
+cat(paste0("\n\n## Deduction variables\n"))
+comp_loop(dedvars)
 
 ```
-
-
 
 
 <!-- ## Prepare tables for tax-related variables -->
@@ -370,18 +346,8 @@ comp_loop(taxvars)
 #| echo: FALSE
 #| eval: FALSE
 
-# comp_loop(taxvars)
-
-# Loop through the sections and tables
-# for (i in seq_along(taxvars)) {
-#   sectitle <- paste0(taxvars[i], ": ", utcvars$desc[utcvars$vname==taxvars[i]])
-#   
-#   cat(paste0("\n\n### ", sectitle, "\n"))
-#   tbl <- tab(collapse, taxvars[i], 2021)
-#   # print(as_raw_html(tbl), raw_html = TRUE)
-#   print(htmltools::HTML(as_raw_html(tbl)), raw_html = TRUE)
-# }
-
+cat(paste0("\n\n## Tax-related variables\n"))
+comp_loop(taxvars)
 
 ```
 
