@@ -1,0 +1,220 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Compare Weighted sums, PUF--PolicyEngine flat file vs Tax-Calculator--taxdata default file
+
+For now, focus on 2021.
+
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+```
+
+
+## Get data
+
+```{r}
+#| label: get-tc-vars
+#| output: false
+
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+# unique variable names
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+```
+
+
+```{r}
+#| label: get-tctd
+#| output: false
+
+tctd <- open_dataset(dpqtctd)
+
+```
+
+
+```{r}
+#| label: get-pufpe
+#| output: false
+
+pufpe <- open_dataset(dpqpufpe)
+
+# pufpe
+# pufpe |> glimpse()
+# pufpe |> ns()
+# count(pufpe, FLPDYR) |> collect()
+# count(pufpe, year) |> collect()
+
+```
+
+
+## Stack data for 2015 and 2021
+
+Stack pufpe and tctd files.
+
+```{r}
+#| label: stack
+#| output: false
+
+years <- c(2015, 2021)
+
+stack <- bind_rows(
+   pufpe |>
+     filter(year %in% years) |> 
+     mutate(file="pufpe") |> 
+     collect(),
+   tctd |> 
+     filter(year %in% years) |> 
+     mutate(file="tctd") |> 
+     collect()
+  ) |> 
+  mutate(irstottax = pmax(c09200 - refund, 0),
+         taxpayer = irstottax > 0)
+ns(stack)
+
+
+# new definition of taxpayers based on issue 37
+# https://github.com/PSLmodels/tax-microdata-benchmarking/issues/37
+
+```
+
+## Identify variables to focus on (initially)
+
+```{r}
+#| label: identify-variables
+#| output: false
+
+utcvars
+
+utcvars |> 
+  filter(str_detect(desc, coll("tax ", ignore_case=TRUE)))
+
+aggvars <- utcvars |> 
+  filter(str_starts(vname, "e") |
+           str_starts(vname, "c") |
+           vname=="qbided") |> 
+  filter(!vname %in% c("elderly_dependents"))
+
+idvars <- quote(c(file, year, taxpayer, s006))
+
+```
+
+
+```{r}
+#| label: data-subset
+#| output: false
+
+stacksub <- stack |> 
+  filter(year==2021) |> 
+  select(!!idvars, any_of(aggvars$vname))
+ns(stacksub)
+
+collapse <- stacksub |>
+  pivot_longer(-c(!!idvars), names_to = "vname") |> 
+  summarise(value=sum(s006 * value), .by = c(file, year, vname, taxpayer)) |> 
+  left_join(utcvars |> select(vname, desc), by = join_by(vname))
+
+wide <- collapse |> 
+  pivot_wider(names_from = file) |> 
+  relocate(pufpe, .after=tctd)
+
+count(wide, year)
+count(wide, taxpayer)
+tmp <- count(wide, vname)
+
+```
+
+## Aggregates for all units (taxpayers and nontaxpayers) in 2021
+
+```{r}
+#| label: aggregates-all
+#| output: true
+
+wide |> 
+  select(-year, -taxpayer) |> 
+  summarise(across(c(tctd, pufpe), sum), .by=c(vname, desc)) |> 
+  mutate(diff=pufpe - tctd,
+         pdiff=diff / tctd) |> 
+  arrange(desc(abs(diff))) |> 
+  gt() |> 
+  tab_header(title = html("Aggregates for all units (taxpayers and nontaxpayers) in 2021, $ billions"),
+               subtitle = html("IRS definition of taxpayers (approximate)")) |>
+  fmt_number(columns=c(tctd, pufpe, diff),
+             scale=1e-9,
+             decimals=1) |>
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+
+```
+
+
+## Aggregates for taxpayers in 2021
+
+```{r}
+#| label: aggregates-taxpayers
+#| output: true
+
+wide |> 
+  filter(taxpayer) |> 
+  select(-year, -taxpayer) |> 
+  mutate(diff=pufpe - tctd,
+         pdiff=diff / tctd) |> 
+  arrange(desc(abs(diff))) |> 
+  gt() |> 
+  tab_header(title = html("Aggregates for taxpayers in 2021, $ billions"),
+               subtitle = html("IRS definition of taxpayers (approximate)")) |>
+  fmt_number(columns=c(tctd, pufpe, diff),
+             scale=1e-9,
+             decimals=1) |>
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+
+
+```
+
+
+## Aggregates for non-taxpayers in 2021
+
+```{r}
+#| label: aggregates-non-taxpayers
+#| output: true
+
+wide |> 
+  filter(taxpayer) |> 
+  select(-year, -taxpayer) |> 
+  mutate(diff=pufpe - tctd,
+         pdiff=diff / tctd) |> 
+  arrange(desc(abs(diff))) |> 
+  gt() |> 
+  tab_header(title = html("Aggregates for non-taxpayers in 2021, $ billions"),
+               subtitle = html("IRS definition of taxpayers (approximate)")) |>
+  fmt_number(columns=c(tctd, pufpe, diff),
+             scale=1e-9,
+             decimals=1) |>
+  fmt_percent(columns=pdiff,
+             scale=1,
+             decimals=1)
+
+
+```
+
+
+

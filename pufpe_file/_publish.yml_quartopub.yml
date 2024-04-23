@@ -1,7 +1,4 @@
 - source: project
-  netlify:
-    - id: e09cb922-9bbf-42fc-a634-a9c4e3cb9529
-      url: 'https://pufpe-files.netlify.app'
   quarto-pub:
     - id: 5de8588f-2108-4e29-baf1-dd901c2b4779
       url: 'https://donboyd5.quarto.pub/pufpe-analysis'
