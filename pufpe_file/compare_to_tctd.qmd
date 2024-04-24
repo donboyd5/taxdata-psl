@@ -8,7 +8,6 @@ editor_options:
 
 For now, focus on 2021.
 
-
 ## Setup
 
 ```{r}
@@ -20,11 +19,12 @@ source(here::here("r", "constants.r"))
 source(here::here("r", "functions.r"))
 
 library(htmltools)
+library(flextable)
+library(Hmisc)
 
 # pufpe <- open_dataset(dpqpufpe)
 
 ```
-
 
 ## Get data
 
@@ -51,7 +51,6 @@ utcvars |> filter(str_detect(vname, "irs"))
 
 ```
 
-
 ```{r}
 #| label: get-tctd
 #| output: false
@@ -70,7 +69,6 @@ tctd <- open_dataset(dpqtctd)
 #   collect()
 
 ```
-
 
 ```{r}
 #| label: get-pufpe
@@ -99,11 +97,10 @@ count(pufpe, year) |> collect()
 
 ```
 
-
 ## Define AGI cutpoints
 
 -   19 ranges for filers for all (?) tables, and for and taxpayers for Table 1.1
--   15 ranges for taxpayers for Table 1.2, Table 1.4, and  Table 2.1
+-   15 ranges for taxpayers for Table 1.2, Table 1.4, and Table 2.1
 
 ```{r}
 #| label: income-cuts
@@ -131,8 +128,10 @@ ycut15 <- c(-Inf, 1,
            200e3, 500e3,
            1e6, Inf)
 
-```
 
+# Hmisc::cut2(1e9, cuts=c(-Inf, 1e8, 1e10, Inf), formatfun = scales::label_comma(scale=1e-9))
+
+```
 
 ## Stack data for 2015 and 2021
 
@@ -189,7 +188,6 @@ dollarvars <- c(incvars, dedvars, taxvars)
 
 ```
 
-
 ```{r}
 #| label: data-subset
 #| output: false
@@ -199,8 +197,10 @@ stacksub <- stack |>
   select(!!idvars, all_of(dollarvars))
 ns(stacksub)
 
+z <- label_comma()
 slong <- stacksub |> 
-  mutate(ycut=cut(c00100, ycut19, right=FALSE),
+  mutate(# ycut=cut(c00100, ycut19, right=FALSE),
+         ycut=Hmisc::cut2(c00100, ycut19, formatfun =  \(x) paste0(" $", comma(x))),
          incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file
   pivot_longer(-c(!!idvars, ycut, incsort), names_to = "vname")
 
@@ -209,27 +209,22 @@ collapse <- slong |>
   summarise(value=sum(s006 * value), .by = c(file, year, vname, incsort, ycut, taxpayer)) |> 
   left_join(utcvars |> select(vname, desc), by = join_by(vname))
 
-# collapse |> 
-#   filter(file=="tctd", vname=="c00100", taxpayer) |> 
-#   summarise(n=n(), value=sum(value)) |> 
-#   kable()
-# 
-#  stack |> 
-#    filter(year==2021, file=="tctd") |> 
-#    select(year, file, s006, irstottax, taxpayer, c00100) |> 
-#    summarise(value=sum(s006 * c00100), .by=c(year, file, taxpayer)) |> 
-#    kable()
+# Hmisc::cut2(10e4, ycut19, formatfun = \(x) paste0(" $", comma(x)))
+# z <- label_comma()
+# z(10000)
+# tibble(x=seq(0, 10e4, 10e3)) |> 
+#   mutate(ycut=Hmisc::cut2(x, ycut19, formatfun = \(x) paste0(" $", z(x)), oneval = FALSE))
 
-# count(collapse, vname)
- 
+
 ```
-
 
 ## Function to create comparison table
 
 ```{r}
-#| label: tab-function
+#| label: tab-function-gt
 #| output: false
+
+# I have stopped using gt in a loop as it is too time consuming and buggy in a loop
 
 
 tab <- function(data, vname, year=2021){
@@ -269,85 +264,122 @@ tab <- function(data, vname, year=2021){
 
 ```
 
+```{r}
+#| label: tab-functions-alt
+#| output: false
+
+
+# tab2 <- function(data, vname, year=2021){
+#   # create gt comparison table using a chosen variable
+#   vdesc <- utcvars |> 
+#     filter(vname==!!vname) |> 
+#     pull(desc)
+#   
+#   title <- paste0(vname, ": ", vdesc, " -- $ billions, IRS-defined taxpayers")
+#   subtitle <- paste0("PUF--PolicyEngine Compared to Tax-Calculator--taxdata Default -- ", year)
+#   
+#   tabdata <- data |> 
+#     filter(vname==!!vname, year==!!year, taxpayer) |> 
+#     select(incsort, ycut, file, value) |> 
+#     arrange(desc(file)) |> 
+#     mutate(value=value * 1e-9) |> # scale for display purposes
+#     pivot_wider(names_from = file) |> 
+#     arrange(incsort) |> 
+#     adorn_totals() |> 
+#     mutate(diff=pufpe - tctd,
+#            pdiff=diff / tctd)
+#   
+#   tab <- datatable(tabdata,
+#                    rownames = FALSE,
+#                    options = list(scrollX = TRUE, scrollY = '1500px', pageLength = 20),
+#                    filter="top") |>
+#     formatCurrency(columns = c("tctd", "pufpe", "diff"), currency="", digits=2) |> 
+#     formatPercentage(columns = "pdiff", digits = 1)
+#   tab
+# }
+
+
+get_tabdata <- function(data, vname, year=2021){
+  # create gt comparison table using a chosen variable
+  vdesc <- utcvars |> 
+    filter(vname==!!vname) |> 
+    pull(desc)
+  
+  title <- paste0(vname, ": ", vdesc, " -- $ billions, IRS-defined taxpayers")
+  subtitle <- paste0("PUF--PolicyEngine Compared to Tax-Calculator--taxdata Default -- ", year)
+  
+  tabdata <- data |> 
+    filter(vname==!!vname, year==!!year, taxpayer) |> 
+    select(incsort, ycut, file, value) |> 
+    arrange(desc(file)) |> 
+    mutate(value=value * 1e-9) |> # scale for display purposes
+    pivot_wider(names_from = file) |> 
+    arrange(incsort) |> 
+    adorn_totals() |> 
+    mutate(diff=pufpe - tctd,
+           pdiff=diff / tctd)
+  
+  tabdata
+}
+
+```
 
 Function to loop through variables and create tables.
 
 ```{r}
 #| label: loop-function
 
-comp_loop <- function(vars){
+comp_loop <- function(vars, year=2021){
+  # I have switched to flextable because gt() takes too long and is buggy
   # Loop through the sections and tables
-  for (i in seq_along(vars)) {
-    sectitle <- paste0(vars[i], ": ", utcvars$desc[utcvars$vname==vars[i]])
+  for(i in 1:length(vars)){
+    vname <- vars[i]
     
+    vdesc <- utcvars |> 
+      filter(vname==!!vname) |> 
+      pull(desc)
+    
+    sectitle <- paste0(vname, ": ", vdesc)
     cat(paste0("\n\n### ", sectitle, "\n"))
-    tbl <- tab(collapse, vars[i], 2021)
-    tbl2 <- htmltools::HTML(as_raw_html(tbl))
-    # print(as_raw_html(tbl), raw_html = TRUE)
-    print(tbl2, raw_html = TRUE)
+    
+    tabdata <- get_tabdata(data=collapse, vname=vname, year=year)
+    
+    title <- paste0(vname, ": ", vdesc, " -- $ billions, IRS-defined taxpayers")
+    subtitle <- paste0("PUF--PolicyEngine Compared to default Tax-Calculator--taxdata -- ", year)
+    
+    ft <- flextable(tabdata) |>
+      colformat_double(j = c("tctd", "pufpe", "diff"), 
+                       digits = 2, big.mark = ",") |> 
+      set_formatter(pdiff = function(x) sprintf("%.1f%%", x*100 ))
+    
+    ft |> 
+      add_header_lines(values = c(title, subtitle)) |> 
+      align(align = "right", j = "ycut") |> 
+      autofit() |> 
+      flextable_to_rmd()
+    cat("\n\n")  
   }
 }
+
 
 ```
 
 
 ## Loop through variables and create tables
 
-<!-- ```{r} -->
-<!-- #| label: tab-loop-all -->
-<!-- #| output: asis -->
-<!-- #| echo: FALSE -->
-
-<!-- cat(paste0("\n\n## Income variables\n")) -->
-<!-- comp_loop(incvars) -->
-
-<!-- cat(paste0("\n\n## Deduction variables\n")) -->
-<!-- comp_loop(dedvars) -->
-
-<!-- cat(paste0("\n\n## Tax-related variables\n")) -->
-<!-- comp_loop(taxvars) -->
-
-<!-- ``` -->
-
-
-
-<!-- ## Prepare tables for income variables -->
 
 ```{r}
-#| label: tab-loop-income
-#| output: asis
+#| label: tab-loop-all
 #| echo: FALSE
+#| output: asis
 
-# Loop through the sections and tables
 cat(paste0("\n\n## Income variables\n"))
 comp_loop(incvars)
 
-```
-
-
-<!-- ## Prepare tables for deduction variables -->
-
-```{r}
-#| label: tab-loop-deductions
-#| output: asis
-#| echo: FALSE
-
 cat(paste0("\n\n## Deduction variables\n"))
 comp_loop(dedvars)
-
-```
-
-
-<!-- ## Prepare tables for tax-related variables -->
-
-```{r}
-#| label: tab-loop-taxvars
-#| output: asis
-#| echo: FALSE
-#| eval: FALSE
 
 cat(paste0("\n\n## Tax-related variables\n"))
 comp_loop(taxvars)
 
 ```
-
