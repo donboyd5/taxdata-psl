@@ -169,10 +169,20 @@ dfl |>
     title = "Selected variables weighted with original and optimized weights",
     subtitle = "By size of weight, dollar variables in $ billions"
     ) |>
-  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_")),
+  tab_spanner(columns =starts_with("n_"),
+              label="Number of records") |>
+  tab_spanner(columns =starts_with("wtsum_"),
+              label="Number of weighted returns") |>
+  tab_spanner(columns =starts_with("agi_"),
+              label="agi") |>
+  tab_spanner(columns =starts_with("iitax_"),
+              label="iitax") |>
+  tab_spanner(columns = c(wtdiff, agidiff, iitaxdiff),
+              label="Change from original") |>  
+  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_"), wtdiff),
              # scale=1e-9,
              decimals=0) |> 
-    fmt_number(columns=-c(wcut, starts_with("n_"), starts_with("wtsum_")),
+  fmt_number(columns=-c(wcut, starts_with("n_"), starts_with("wtsum_"), wtdiff),
              scale=1e-9,
              decimals=2) |> 
   cols_label(wcut="Weight size")
@@ -188,7 +198,7 @@ The table below shows the changes in weights, agi, and iitax by marital status, 
 
 A vastly disproportionate share of the change occurred in single returns. I can't think of a good reason for this. To me this is an indication that:
 
--   We need to penalize changes in weights. There is information in the PUF weights that is being discarded by the PolicyEngine approach to weights, which does not penalize changes in weights. Right now, the optimization routine just goes in and selects weights that hit targets, without worrying about whether weights change a lot thereby creating innocent bystanders.
+-   We need to penalize changes in weights. There is information in the PUF weights that is being discarded by the PolicyEngine approach to weights, which does not penalize changes in weights. Right now, the optimization routine just goes in and selects weights that hit targets, without worrying about whether weights change a lot thereby creating innocent bystanders - large unintended changes in untargeted variables and classifications.
 
 -   We will want to add targets for # of returns, agi, and possibly other variables by marital status - perhaps by agi range. But I think this is secondary, and that a lot of problems will be fixed by penalizing changes in weights.
 
@@ -224,14 +234,26 @@ dfl |>
     title = "Selected variables weighted with original and optimized weights",
     subtitle = "By marital status, dollar variables in $ billions"
     ) |>
-  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_")),
+  tab_spanner(columns =starts_with("n_"),
+              label="Number of records") |>
+  tab_spanner(columns =starts_with("wtsum_"),
+              label="Number of weighted returns") |>
+  tab_spanner(columns =starts_with("agi_"),
+              label="agi") |>
+  tab_spanner(columns =starts_with("iitax_"),
+              label="iitax") |>
+  tab_spanner(columns = c(wtdiff, agidiff, iitaxdiff),
+              label="Change from original") |>
+  tab_spanner(columns =contains("pdiff"),
+              label="% Change from original") |>
+  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_"), wtdiff),
              # scale=1e-9,
-             decimals=0) |> 
-    fmt_number(columns=-c(MARS, starts_with("n_"), starts_with("wtsum_")),
+             decimals=0) |>
+  fmt_number(columns=c(starts_with("agi_"), starts_with("iitax_"), agidiff, iitaxdiff),
              scale=1e-9,
-             decimals=2) |> 
-    fmt_percent(columns=contains("pdiff"),
-               decimals=1) |> 
+             decimals=2) |>
+  fmt_percent(columns=contains("pdiff"),
+              decimals=1) |> 
   cols_label(MARS="Marital status (MARS)") |> 
   cols_align(
     align = "left",
