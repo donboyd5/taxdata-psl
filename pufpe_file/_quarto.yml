@@ -5,7 +5,7 @@ execute:
   eval: true
   echo: true
   output: true
-  freeze: false  # auto: during global project renders, re-render only when source changes
+  freeze: auto  # auto: during global project renders, re-render only when source changes
 
 book:
   title: "Examine PUF-Policy Engine files"
@@ -16,6 +16,7 @@ book:
   chapters:
     - index.qmd
     - prepare_databases.qmd
+    - examine_weights.qmd
     - zero_weighted_sums.qmd
     - aggregates.qmd
     - compare_to_tctd.qmd

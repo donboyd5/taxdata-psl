@@ -1,0 +1,280 @@
+---
+output: html_document
+editor_options: 
+ chunk_output_type: console
+---
+
+# Examine change in weights resulting from optimization
+
+For now, focus on the 2021 PUF--PolicyEngine flat file.
+
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+library(Hmisc)
+
+```
+
+
+## Get data
+
+```{r}
+#| label: get-tc-vars
+#| output: false
+
+
+tcvars <- readRDS(here::here("data", "tcvars.rds"))
+# ht(tcvars)
+
+# unique variable names
+utcvars <- tcvars |> 
+  select(vname, vtype, desc) |> 
+  distinct()
+
+```
+
+
+```{r}
+#| label: get-pufpe
+#| output: false
+
+pufpe <- open_dataset(dpqpufpe)
+
+# pufpe
+# pufpe |> glimpse()
+# pufpe |> ns()
+# count(pufpe, FLPDYR) |> collect()
+# count(pufpe, year) |> collect()
+
+```
+
+
+```{r}
+#| label: get-data
+#| output: false
+
+df <- pufpe |>
+  filter(year == 2021) |> 
+  # select(RECID, MARS, c00100, iitax, s006, s006_original) |> 
+  mutate(diff = s006 - s006_original,
+         pdiff = s006 / s006_original - 1) |> 
+  collect() |> 
+  rename(s006old=s006_original)
+
+ns(df)
+skim(df)
+
+dfl <- df |> 
+  select(RECID, MARS, c00100, iitax, s006old, s006) |> 
+  pivot_longer(cols=contains("s006"), values_to = "weight")
+
+```
+
+
+## Selected summary stats
+
+`s006old` is the original weight and `s006` is the optimized weight.
+
+
+```{r}
+#| label: summary-stats
+
+df |> 
+  select(contains("s006")) |> 
+  summary()
+
+nneg <- df |> 
+  filter(s006 < 0) |> 
+  nrow()
+
+```
+
+
+**Note from table above that we have negative weights -- a total of `r comma(nneg)` records (calculated separately - not calculatable from table above).**
+
+
+## Change in distribution of the weights
+
+Histograms below. Aside from the negative weights in the top panel at left, the distributions don't provide much insight into whether there are other things we should be concerned about - they do show that we have fewer weights centered on about 1,400 and more weights that are considerably larger.
+
+The warnings simply note that I have restricted the range of weights (I did that to make the histograms readable).
+
+```{r}
+
+levs <- c("s006", "s006old"); labs <- c("Optimized weights", "Original weights")
+dfl |> 
+  mutate(name=factor(name, 
+                     levels=levs, 
+                     labels=labs)) |> 
+  ggplot(aes(x = weight, fill = name)) +
+  geom_histogram(position = "identity", alpha = 0.5, binwidth=50) + 
+  scale_x_continuous(name="weight", breaks=seq(-10e3, 100e3, 250), limits=c(-250, 4e3)) +
+  scale_fill_manual(values=c("red", "blue")) +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~ name, scales = "free", ncol = 1) +
+  labs(x = "Value", y = "Frequency") +
+  ggtitle(label = "Frequency counts of new and old weights",
+          subtitle = "Weight range restricted to -250 to 4,000 for readability (includes most weights)") +
+  theme_minimal() +
+  legend_none
+
+```
+
+
+## How much have agi and iitax changed, by size of weight?
+
+The table below raises several issues and questions:
+
+-   Our negative weights contribute about -\$32.7 billion of agi, and -\$4.4 billion of iitax. Presumably we can fix this easily and it will be important to do so.
+
+-   We have 2,660 more records with weights between 0 and 1. Weights in this range now have \$284 billion more AGI and \$71 billion more iitax.
+
+-   We have one record where the original and optimized weight is 66,424. I'm surprised at that. Was that from the original PUF?
+
+-   Were the original weights for PUF records the 2015 weight, grown simply to 2021, by % change in population? (That's what I have assumed.) Or something else?
+
+-   What's the best way to identify original PUF records, so that we can see what happened to weights on PUF records vs. other records?
+
+
+```{r}
+#| label: weight-size-table
+#| column: page
+
+wcuts <- c(-Inf, -10e3, -1e-9, 0, 1, seq(1e3, 5e3, 1e3), seq(5e3, 75e3, 10e3), Inf) |> unique()
+
+dfl |> 
+  mutate(wcut=Hmisc::cut2(weight, wcuts, formatfun =  \(x) paste0(" ", comma(x))),
+         wsort=as.integer(wcut) + 1L) |>  
+  arrange(desc(name)) |> 
+  summarise(n=n(), 
+            wtsum=sum(weight), 
+            agi=sum(c00100 * weight),
+            iitax=sum(iitax * weight),
+            .by=c(name, wcut)) |> 
+  pivot_wider(values_from = c(n, wtsum, agi, iitax), values_fill=0) |> 
+  arrange(wcut) |> 
+  janitor::adorn_totals() |> 
+  mutate(wtdiff=wtsum_s006 - wtsum_s006old,
+         agidiff=agi_s006 - agi_s006old,
+         iitaxdiff=iitax_s006 - iitax_s006old) |> 
+  gt() |>
+  tab_header(
+    title = "Selected variables weighted with original and optimized weights",
+    subtitle = "By size of weight, dollar variables in $ billions"
+    ) |>
+  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_")),
+             # scale=1e-9,
+             decimals=0) |> 
+    fmt_number(columns=-c(wcut, starts_with("n_"), starts_with("wtsum_")),
+             scale=1e-9,
+             decimals=2) |> 
+  cols_label(wcut="Weight size")
+  
+```
+
+
+## Innocent bystanders
+
+We should be able to easily fix the negative weights, so I am not focusing on them here. However, other changes can create innocent bystanders -- untargeted variables that change significantly, in undesirable ways, when weights are changed to hit targeted variables.
+
+The table below shows the changes in weights, agi, and iitax by marital status, which we did not target.
+
+A vastly disproportionate share of the change occurred in single returns. I can't think of a good reason for this. To me this is an indication that:
+
+-   We need to penalize changes in weights. There is information in the PUF weights that is being discarded by the PolicyEngine approach to weights, which does not penalize changes in weights. Right now, the optimization routine just goes in and selects weights that hit targets, without worrying about whether weights change a lot thereby creating innocent bystanders.
+
+-   We will want to add targets for # of returns, agi, and possibly other variables by marital status - perhaps by agi range. But I think this is secondary, and that a lot of problems will be fixed by penalizing changes in weights.
+
+```{r}
+#| label: mars-table
+#| column: page
+
+mlabs <- c("1: single"=1, "2: joint"=2, "3: separate"=3, "4: household-head"=4, "5: widow(er)"=5)
+
+# vec <- c(1, 3, 5, 2, 3, 4)
+# factor(vec, levels=mlabs, labels=names(mlabs))
+
+
+dfl |> 
+  arrange(desc(name)) |> 
+  mutate(MARS=factor(MARS, levels=mlabs, labels=names(mlabs))) |> 
+  summarise(n=n(), 
+            wtsum=sum(weight), 
+            agi=sum(c00100 * weight),
+            iitax=sum(iitax * weight),
+            .by=c(name, MARS)) |> 
+  pivot_wider(values_from = c(n, wtsum, agi, iitax), values_fill=0) |> 
+  arrange(MARS) |> 
+  janitor::adorn_totals() |> 
+  mutate(wtdiff=wtsum_s006 - wtsum_s006old,
+         agidiff=agi_s006 - agi_s006old,
+         iitaxdiff=iitax_s006 - iitax_s006old,
+         wtpdiff=wtdiff / wtsum_s006old,
+         agipdiff=agidiff / agi_s006old,
+         iitaxpdiff=iitaxdiff / iitax_s006old) |> 
+  gt() |>
+  tab_header(
+    title = "Selected variables weighted with original and optimized weights",
+    subtitle = "By marital status, dollar variables in $ billions"
+    ) |>
+  fmt_number(columns=c(starts_with("n_"), starts_with("wtsum_")),
+             # scale=1e-9,
+             decimals=0) |> 
+    fmt_number(columns=-c(MARS, starts_with("n_"), starts_with("wtsum_")),
+             scale=1e-9,
+             decimals=2) |> 
+    fmt_percent(columns=contains("pdiff"),
+               decimals=1) |> 
+  cols_label(MARS="Marital status (MARS)") |> 
+  cols_align(
+    align = "left",
+    columns = MARS
+  )
+
+```
+
+
+
+## Records with exceptionally large changes in weights.
+
+TO COME.
+
+
+
+```{r}
+#| label: junk
+#| eval: false
+#| output: false
+
+# wcuts <- c(-Inf, -10e3, -1, 1, seq(1e3, 5e3, 1e3), seq(5e3, 75e3, 10e3), Inf) |> unique()
+# df |>
+#   mutate(wcut=cut(s006, wcuts)) |> 
+#   summarise(n=n(),
+#             diffmin=min(diff),
+#             diffp25=quantile(diff, probs = .25),
+#             diffp50=quantile(diff, probs = .5),
+#             diff75=quantile(diff, probs = .75),
+#             diffmax=max(diff),
+#             pdiffp25=quantile(pdiff, probs = .25, na.rm=TRUE),
+#             pdiffp50=quantile(pdiff, probs = .5, na.rm=TRUE),
+#             pdiff75=quantile(pdiff, probs = .75, na.rm=TRUE),
+#             .by=wcut) |> 
+#   arrange(wcut) |> 
+#   gt() |> 
+#   fmt_number(columns=c(n, starts_with("diff")),
+#              # scale=1e-9,
+#              decimals=0) |> 
+#   fmt_percent(columns=c(starts_with("pdiff")),
+#              # scale=1e-9,
+#              decimals=1)
+
+
+```
+
