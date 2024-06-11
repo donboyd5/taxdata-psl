@@ -38,6 +38,34 @@ When comparing taxable returns in our data to reported IRS aggregates for taxabl
 
 I think (?) the relevant taxdata variables are iitax for the tax concept and c07100 for nonrefundable credits. My R code is therefore
 
-``` R
+``` r
 irstottax = pmax(iitax - c07100, 0)
 ```
+
+## Key IRS variables and how they map to PUF
+
+### Capital gains related variables
+
+#### PUF Concepts
+
+##### Input variables
+
+The 2015 PUF contains the following capital gains-related input variables:
+
+-   **E01000** Net capital gain or loss (+/-)
+
+-   **E01100** Capital gain distributions reported on Form 1040
+
+-   **E22370** Schedule D capital gain distributions
+
+-   **E24515** Unrecaptured Section 1250 gain
+
+-   **E24516** Capital gain less investment expense
+
+-   **P22250** - SHORT-TERM GAINS LESS LOSSES NET OF CARRYOVER All short-term capital gains less losses shown in column (h) of Schedule D except for the short-term capital loss carryover. Schedule D. (PUF 2015, p.23)
+
+-   **P23250** - LONG-TERM GAINS LESS LOSSES NET OF CARRYOVER All long-term capital gains less losses shown in column (h) of Schedule D except for the long-term capital loss carryover. Schedule D.
+
+-   
+
+#### IRS Concepts
