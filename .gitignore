@@ -3,17 +3,22 @@
 .RData
 .Ruserdata
 
+# folders to ignore (end with "/")
 _book/
 *_files/
 _freeze/
 .quarto/
 data/IRS spreadsheets/
+data/tmd/
 documents/
 ignore/
+tmd/images/
 
+# filetypes and files to ignore
 #  *.csv -- do allow potential_targets.csv
 *.rds
 *~*  # temporary files
+growfactors.csv
 
 
 

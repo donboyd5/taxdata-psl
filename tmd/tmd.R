@@ -1,5 +1,6 @@
 
-
+# install.packages("BiocManager")
+# BiocManager::install("rhdf5")
 
 # setup -------------------------------------------------------------------
 
@@ -7,7 +8,8 @@ source(here::here("r", "libraries.r"))
 source(here::here("r", "constants.r"))
 source(here::here("r", "functions.r"))
 library(formattable)
-library(btools)
+# library(btools)
+library(rhdf5)
 
 
 # constants ---------------------------------------------------------------
@@ -46,6 +48,55 @@ ptargs <- readRDS(here::here("data", "potential_targets.rds"))
 glimpse(ptargs)
 
 
+
+# raw 2015 puf ------------------------------------------------------------
+
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+puf <- vroom(ppath)
+puf2015 <- puf |> 
+  btools::lcnames() |> 
+  mutate(year=2015, s006=s006 / 100)
+glimpse(puf2015)
+
+
+
+# 2021 puf from Nikhil ----------------------------------------------------
+
+puf2021 <- vroom(fs::path(stor_path, "puf_2021.csv")) |> 
+  lcnames() |> 
+  mutate(year=2021, s006=s006 / 100)
+glimpse(puf2021) # 207,696
+# skim(puf2021)
+
+
+# weights analysis --------------------------------------------------------
+
+wtcomp <- 
+  left_join(puf2015 |>
+              select(recid, s006_puf2015=s006),
+            puf2021 |>
+              select(recid, s006_puf2021=s006),
+            by = join_by(recid)) |> 
+  mutate(r2115=s006_puf2021 / s006_puf2015)
+
+summary(wtcomp)
+ht(wtcomp)
+
+ns(tmd2021)
+wtsall <- wtcomp |>
+  left_join(tmd2021 |> 
+              select(recid=RECID, 
+                     s006_tmd2021=s006,
+                     s006_original),
+            by = join_by(recid))
+
+summary(wtsall)
+# skim(wtsall)
+ht(wtsall)
+
+
 # get raw tmd files --------------------------------------------------------
 # \\wsl.localhost\Ubuntu\home\donboyd5\Documents\python_projects\tax-microdata-benchmarking\tax_microdata_benchmarking\storage\output
 # tmd.csv.gz # 233412
@@ -55,12 +106,35 @@ glimpse(ptargs)
 # puf_ecps_2023.csv.gz
 # taxdata_puf_2023.csv.gz
 
+tmd2021 <- vroom(fs::path(stor_path, "tmd_2021.csv"))
+glimpse(tmd2021)
+summary(tmd2021 |> select(RECID, s006, s006_original, c00100))
+
+ns(puf2015)
+
+tmd2021 |> 
+  arrange(RECID) |> 
+  filter(RECID >= 999000) |> 
+  select(RECID, s006, s006_original, c01000) |> 
+  left_join(puf2015 |> 
+              select(RECID=recid, s006_puf2015=s006, e00100, e01000),
+            by = join_by(RECID))
+  
+
 wtsraw <- vroom(fs::path(stor_path, "tmd_weights.csv.gz"))
 wtsums <- wtsraw |> 
   mutate(recnum=row_number()) |> 
   pivot_longer(-recnum, names_to = "year", values_to = "weight") |> 
-  mutate(year=as.integer(str_sub(year, 3, 6))) |> 
+  mutate(year=as.integer(str_sub(year, 3, 6)),
+         weight=weight / 100.) |> 
   summarise(weight=sum(weight), .by=year)
+
+wtsraw2 <- wtsraw |> 
+  mutate(recnum=row_number()) |> 
+  pivot_longer(-recnum, names_to = "year", values_to = "weight") |> 
+  mutate(year=as.integer(str_sub(year, 3, 6)),
+         weight=weight / 100.) 
+
 
 wtsums |> 
   ggplot(aes(year, weight)) +
@@ -78,6 +152,12 @@ wtsums |>
   geom_hline(yintercept = 0) +
   ggtitle("Percent change in sum of tmd weights by year")
 
+ggplot(df, aes(x = as.factor(year), y = value)) +
+  geom_boxplot() +
+  labs(x = "Year", y = "Value", title = "Distribution of Value Across Years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
 
 tmdraw <- vroom(fs::path(stor_path, "tmd.csv.gz")) # raw tmd, 2021
 ns(tmdraw)
@@ -85,6 +165,17 @@ glimpse(tmdraw)
 sum(tmdraw$e00200 * tmdraw$s006) # 9.915791e+12
 sum(tmdraw$s006) # 219,593,696
 wtsums$weight[wtsums$year==2021] # 219,593,696.44
+
+
+p <- wtsraw2 |> 
+  ggplot(aes(x = as.factor(year), y = weight)) +
+  geom_boxplot() +
+  labs(x = "Year", y = "Value", title = "Distribution of Value Across Years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p + scale_y_continuous(limits=c(-1000, 5e3))
+
 
 pufcps2021 <- vroom(fs::path(stor_path, "puf_ecps_2021.csv.gz")) # tmd through tc, 2021
 ns(pufcps2021)
@@ -279,16 +370,15 @@ tmdx <- tmd1 |>
          e00900, c01000, 
          e01400, e01500, e01700,
          e02300, e02400, c02500, c04800, c05800, # c08800 does not exist
+         e18400,
          e26270,
          s006) |> 
   mutate(weight=1) |> 
   pivot_longer(-c(recnum, s006)) |> 
-  summarise(tot=sum(value * s006), .by=name) |> 
-  mutate(tot=ifelse(name=="weight", 
-                    tot,
-                    formattable::comma(tot / 1000, digits = 3)))
+  summarise(tot=sum(value * s006), .by=name) |>
+  mutate(tot=formattable::comma(tot / 1000, digits = 3))
 tmdx
-
+formattable::comma(174185064, digits = 3)
 
 # c01000	cgnet
 # c01000_nnz	nret_cgnet
@@ -324,3 +414,40 @@ tmdx
   
 
 
+
+# test h5 files -----------------------------------------------------------
+
+fpath <- fs::path(stor_path, "pe_puf_2015.h5")
+fpath <- fs::path(stor_path, "pe_puf_2021.h5")
+
+
+h5file <- H5Fopen(fpath)
+h5ls(h5file) # contents
+# Read a dataset
+data <- h5read(h5file)
+data <- h5read(h5file, "age")
+
+contents <- h5ls(h5file) 
+count(contents, dim)
+count(contents, otype)
+count(contents, dclass)
+
+data_list <- list()
+
+# Iterate over each dataset
+for (i in 1:nrow(contents)) {
+  dataset_name <- contents[i, "name"]
+  group_name <- contents[i, "group"]
+  full_name <- paste0(group_name, "/", dataset_name)
+  
+  # Read the dataset
+  data_list[[dataset_name]] <- h5read(h5file, full_name)
+}
+
+# Combine the list into a DataFrame
+data_df <- as.data.frame(data_list)
+
+my_h5_files <- Sys.glob(fpath)
+
+# Close the HDF5 file
+H5Fclose(h5file)

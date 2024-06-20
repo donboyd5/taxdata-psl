@@ -1,0 +1,208 @@
+---
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+# Analysis
+
+## Setup
+
+```{r}
+#| label: includes
+#| output: false
+
+source(here::here("r", "libraries.r"))
+# library(jsonlite)
+# library(tidyjson)
+
+```
+
+```{r}
+#| label: constants-windows
+#| output: false
+
+# paths in the Windows part of my machine
+# this project
+tddir <- r"(E:\data\taxdata-psl)"
+tpath <- here::here("data", "potential_targets.csv")
+
+# elsewhere in the windows part of my machine
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+```
+
+```{r}
+#| label: constants-linux
+#| output: false
+
+# Windows subsystem for linux (wsl) folders and filenames
+wsldir <- "/\\wsl.localhost"
+pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
+tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
+stor_path <- fs::path(wsldir, pydir, tmddir)
+
+
+```
+
+## Get data files
+
+```{r}
+#| label: tax-calculator-variables
+#| output: false
+
+
+tcvars <- readRDS(here::here("data", "tcvars.rds")) # tax-calculator variables
+# ht(tcvars)
+
+# unique tax calculator variables (some variables ahve different info for different years)
+utcvars <- tcvars |> 
+  select(vname, desc) |> 
+  distinct() |> 
+  add_case(vname=c("n", "nret"), desc=c("# records", "# returns (millions)"))
+
+```
+
+```{r}
+#| label: irs-targets
+#| output: false
+
+ptargs <- readRDS(here::here("data", "potential_targets.rds"))
+glimpse(ptargs)
+
+```
+
+```{r}
+#| label: weights-tmd
+#| output: false
+
+wtsraw <- vroom(fs::path(stor_path, "tmd_weights.csv.gz"))
+wtsums <- wtsraw |> 
+  mutate(recnum=row_number()) |> 
+  pivot_longer(-recnum, names_to = "year", values_to = "weight") |> 
+  mutate(year=as.integer(str_sub(year, 3, 6)),
+         weight=weight / 100.) |> 
+  summarise(weight=sum(weight), .by=year)
+
+```
+
+```{r}
+#| label: pufraw-2015
+#| output: false
+
+puf <- vroom(ppath)
+pufraw2015 <- puf |> 
+  btools::lcnames() |> 
+  mutate(year=2015, s006=s006 / 100)
+glimpse(pufraw2015)
+ns(pufraw2015)
+rm(puf)
+
+
+```
+
+```{r}
+#| label: puftc-2021 # puf that Nikhil ran through tax calculator
+#| output: false
+
+puftc2021 <- vroom(fs::path(stor_path, "puf_2021.csv")) |> 
+  lcnames() |> 
+  mutate(year=2021, s006=s006 / 100)
+glimpse(puftc2021) # 207,696
+
+```
+
+```{r}
+#| label: tmdtc-2021 # tmd that has been run through tax calculator
+#| output: false
+
+tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv"))
+glimpse(tmdtc2021)
+ns(tmdtc2021)
+
+```
+
+## Explore the tmd 2021 file (tmd_2021.csv)
+
+### Treatment of aggregate records
+
+Here is what the 2015 PUF documentation (p.3) says about aggregate records:
+
+![](images/clipboard-2840902240.png)
+
+I had raised concerns about the importance of these records - capital gains, in particular, are disproportionately large on one of these records – and said that I think we should explore in the future whether there is information in these 4 records that we can use. However, for purposes of the current project we agreed - as other modelers using previous PUFs had done - that the proper and conservative approach for now is to exclude these records from our tmd files. We can revisit in the future whether there are ways we can use information from these records to improve upon our simple rule of excluding them.
+
+However, these 4 records nonetheless appear to be in our tmd files. The table below shows, for tmd_2021.csv:
+
+-   RECID for the 4 aggregate records
+-   tmd values in 2021 for s006 (our final weight), c00100 (AGI, calculated), c01000 (net capital gains, calculated), and taxbc (tax before credits), each with _tmd suffix,
+-   weighted values for the tmd c00100 and c01000 variables, with wtd_ prefix (weighted by s006_tmd)
+-   raw puf values in 2015 for e00100 (AGI) and e00100 (net capital gains), with _puf suffix
+-   I do not show original puf weights or pre-optimization tmd weights because the changes were not significant enough to be concerning
+
+A few observations:
+
+-   First and foremost, we don't want the 4 aggregate records in our output file and should remove them.
+-   The extraordinary nature of these records is worth remembering: for example, RECID 999999 has average AGI of \$369.3 million, and weighted capital gains are \$111 billion (out of about \$2 trillion).
+-   That certainly means these 4 records will have thrown off our optimized reweighting significantly and it will be important to see how things change after we remove them.
+-   Strange things have happened to these records as we moved from the raw 2015 puf to the extrapolated (uprated), reweighted tmd file for 2021. For example, raw 2015 AGI (e00100) on RECID 999996 changed from -\$96.4 million to calculated AGI in 2021 of \$11.1 million. That may be just fine - it may be Tax-Calculator doing what it should be doing. We don't have to worry about it for these records but we do need to ask ourselves whether it suggests anything strange is going on that we should worry about for the other 225k records we have. I don't have anything particular I'm worried about, it's just an observation that I think we need to think about.
+
+ Seems like it would be a good idea to have a test for whether aggregate records are included.
+
+
+```{r}
+#| label: tmdtc-2021-aggregate-records
+#| output: true
+#| column: page
+
+df <- left_join(
+  tmdtc2021 |> 
+    select(recid=RECID, 
+         s006_tmd=s006, c00100_tmd=c00100, c01000_tmd=c01000, taxbc_tmd=taxbc) |> 
+    filter(recid >= 999000),
+  
+  pufraw2015 |> 
+    select(recid, e00100_puf=e00100, e01000_puf=e01000) |> 
+    filter(recid >= 999000),
+  
+  by = join_by(recid))  |> 
+  mutate(across(c(c00100_tmd, c01000_tmd, taxbc_tmd),
+                \(x) s006_tmd * x,
+                .names = "wtd_{.col}")) |> 
+  arrange(recid)
+
+df |> 
+  gt() |> 
+  fmt_number(columns=-c(recid, s006_tmd),
+             # scale=1e-9,
+             decimals=0) |>
+  fmt_number(columns=s006_tmd,
+             decimals = 2)
+
+```
+
+
+### Negative s006
+
+On tmd_2021.csv, we have 2,012 records on which s006 is negative. No records have negative s006_original, the weight immediately before optimized reweighting. Thus, the optimization is causing this.
+
+The negative-s006 records represent 84.5 thousand tax returns and result in weighted tax before credits of negative $1.7 billion. We had agreed to make sure optimized weights could not be negative and I thought had accomplished that for a while. 
+
+Seems like it would be a good idea to have a test for whether we have negative weights.
+
+```{r}
+
+tmdtc2021 |> 
+  filter(s006 < 0) |> 
+  summarise(n=n(), mean=mean(s006), median=median(s006), min=min(s006), wtd_n=sum(s006), wtd_taxbc=sum(s006 * taxbc)) |> 
+  gt() |> 
+  fmt_number(columns=c(n, wtd_taxbc),
+             decimals = 0) |> 
+  fmt_number(columns=-c(n, wtd_taxbc),
+             decimals = 2)
+
+```
+
+
+

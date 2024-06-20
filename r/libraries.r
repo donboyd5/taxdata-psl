@@ -24,9 +24,9 @@ library(tidyjson)
 
 
 # boyd libraries
-# library(btools)
+library(btools)
 # library(bdata)
-# library(bggtools)
+library(bggtools)
 # library(bmaps)
 
 # graphics
