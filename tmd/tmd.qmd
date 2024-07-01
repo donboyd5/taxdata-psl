@@ -4,7 +4,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Analysis
+# Analysis of tax microdata file (tmd)
 
 ## Setup
 
@@ -24,8 +24,12 @@ source(here::here("r", "libraries.r"))
 
 # paths in the Windows part of my machine
 # this project
+
 tddir <- r"(E:\data\taxdata-psl)"
-tpath <- here::here("data", "potential_targets.csv")
+# tpath <- here::here("data", "potential_targets.csv")
+
+targdir <- r"(E:\R_projects\projects\irs_targets\data)"
+tpath <- fs::path(targdir, "potential_targets.rds")
 
 # elsewhere in the windows part of my machine
 pufdir <- r"(E:\data\puf_files\puf2015)"
@@ -42,16 +46,81 @@ wsldir <- "/\\wsl.localhost"
 pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
 tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
 stor_path <- fs::path(wsldir, pydir, tmddir)
+scratch_path <- fs::path(wsldir, pydir, "scratch")
 
 
 ```
 
-## Get data files
+
+```{r}
+#| label: constants
+#| output: false
+
+
+tab <- function(data, year, vname, title, scale=1, decimals=0){
+  # create gt comparison table using a chosen variable
+  
+  tabdata <- data |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, file, nrecs, value) |> 
+    arrange(incsort) |> 
+    pivot_wider(names_from = file) |> 
+    select(incsort, incrange, irs, tmd) |> 
+    adorn_totals() |> 
+    mutate(diff=tmd - irs,
+           pdiff=diff / irs)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
+             scale=scale,
+             decimals=decimals) |>
+  fmt_percent(columns=contains("pdiff"),
+             scale=1,
+             decimals=1)
+  tab
+}
+
+
+tabtmd <- function(data, year, vname, title, scale=1, decimals=0){
+  # create gt comparison table using a chosen variable
+  
+  tabdata <- data |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, tmdnrecs, irs, tmd) |> 
+    arrange(incsort) |>
+    adorn_totals() |> 
+    mutate(diff=tmd - irs,
+           pdiff=diff / irs)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+    fmt_number(columns=c(irs, tmd, diff),
+               scale=scale,
+               decimals=decimals) |>
+    fmt_number(columns=tmdnrecs,
+               scale=1,
+               decimals=0) |> 
+    fmt_percent(columns=contains("pdiff"),
+                scale=1,
+                decimals=1)
+  tab
+}
+
+```
+
+
+## Get data mappings and definitions
+
+Tax-Calculator variables.
 
 ```{r}
 #| label: tax-calculator-variables
 #| output: false
-
 
 tcvars <- readRDS(here::here("data", "tcvars.rds")) # tax-calculator variables
 # ht(tcvars)
@@ -64,145 +133,820 @@ utcvars <- tcvars |>
 
 ```
 
+
+PUF-IRS mapping.
+
+```{r}
+#| label: puf-irs-map
+#| output: false
+
+# targdir
+# here::here("data", "target_recipes.xlsx")
+
+pimap <- read_excel(fs::path(targdir, "target_recipes.xlsx"), 
+                    sheet = "puf_irs_map",
+                    range=cell_cols("E:H"),
+                    skip=1) |> 
+  filter(status=="good")
+
+
+```
+
+IRS targets.
+
 ```{r}
 #| label: irs-targets
 #| output: false
 
-ptargs <- readRDS(here::here("data", "potential_targets.rds"))
-glimpse(ptargs)
+ptargets <- readRDS(tpath)
+glimpse(ptargets)
+count(ptargets, table)
+ns(ptargets)
+ptargets |> filter(table=="tab21", datatype=="filers") |> count(vname)
+ptargets |> filter(table=="tab21", datatype=="filers") |> count(incsort, incrange)
 
 ```
+
+### Make extended targets file with mapped names
 
 ```{r}
-#| label: weights-tmd
+#| label: extended-targets
 #| output: false
 
-wtsraw <- vroom(fs::path(stor_path, "tmd_weights.csv.gz"))
-wtsums <- wtsraw |> 
-  mutate(recnum=row_number()) |> 
-  pivot_longer(-recnum, names_to = "year", values_to = "weight") |> 
-  mutate(year=as.integer(str_sub(year, 3, 6)),
-         weight=weight / 100.) |> 
-  summarise(weight=sum(weight), .by=year)
+# get targets and proper names for variables we have mappings for
+
+# prepare targets - I should have done it like this in the first place ----
+ptargets2 <- ptargets |> 
+  select(table, datatype, year, incsort, incrange, vname, ptarget) |> 
+  mutate(irsvname=case_when(vname=="nret_all" ~ "nret_agi",
+                         vname=="partnerinc" ~ "partnerpinc",
+                         vname=="nret_hoh" ~ "nret_agi_hoh",
+                         vname=="nret_mfjss" ~ "nret_agi_mfjss",
+                         vname=="nret_mfs" ~ "nret_agi_mfs",
+                         vname=="nret_single" ~ "nret_agi_single",
+                         .default =  vname),
+         vnbase=str_remove(irsvname, "nret_"),
+         vtype=ifelse(str_starts(irsvname, "nret_"),
+                      "nreturns",
+                      "amount"),
+         irsvname=paste0(vnbase, "_", vtype),
+         ptarget=ifelse(vtype=="amount", ptarget * 1000, ptarget)
+         ) |> 
+  select(table, datatype, year, incsort, incrange, vnbase, vtype, irsvname, ptarget) |> 
+  mutate(nranges=n(), .by=c(table, datatype, year, vnbase, vtype, irsvname))
+
+ptargets2
+count(ptargets2, year, table, nranges)
+count(ptargets2 |> filter(year==2021, datatype=="filers"), table, nranges)
+count(ptargets2 |> filter(year==2021, datatype=="filers"), vnbase, vtype, irsvname)
+
+ptargets2 |> 
+  filter(year==2021, datatype=="filers") |> 
+  select(vnbase, vtype, irsvname) |> 
+  distinct() |> 
+  pivot_wider(names_from = vtype, values_from = irsvname)
+
+ptargets2 |> 
+  filter(year==2021, datatype=="filers") |> 
+  count(table)
+
+ptargets2 |> 
+  filter(incsort==1, vnbase=="agi", year==2021, datatype=="filers")
+
+head(ptargets2)
+count(ptargets2, irsvname, vnbase, vtype)
+
+# prepare mapping of IRS names and puf/tmd names ----
+
+pimap2 <- pimap |> 
+  select(tmdname=puf_based_name, irsvname=irs_varname, puf_name) |> 
+  mutate(vtype=ifelse(str_ends(tmdname, "_nnz"), "nreturns", "amount"),
+         vnbase=str_remove(irsvname, "nret_"),
+         irsvname=paste0(vnbase, "_", vtype))
+
+# prepare extended targets df that we will match against tmd summaries ----
+xtargets <- pimap2 |> 
+  left_join(ptargets2 |>
+              filter(year==2021, datatype=="filers"),
+            by = join_by(irsvname, vtype, vnbase))
+glimpse(xtargets)
+
+count(xtargets, tmdname, vnbase, vtype)
+
+## get a unique version of extended targets df, from first IRS table for a variable ----
+uxtargets <- xtargets |> 
+  group_by(year, tmdname, vtype, incsort) |> 
+  arrange(table) |> 
+  slice_head(n=1) |> 
+  ungroup()
+  
 
 ```
 
-```{r}
-#| label: pufraw-2015
-#| output: false
 
-puf <- vroom(ppath)
-pufraw2015 <- puf |> 
-  btools::lcnames() |> 
-  mutate(year=2015, s006=s006 / 100)
-glimpse(pufraw2015)
-ns(pufraw2015)
-rm(puf)
+## Prepare the tmd data
 
-
-```
-
-```{r}
-#| label: puftc-2021 # puf that Nikhil ran through tax calculator
-#| output: false
-
-puftc2021 <- vroom(fs::path(stor_path, "puf_2021.csv")) |> 
-  lcnames() |> 
-  mutate(year=2021, s006=s006 / 100)
-glimpse(puftc2021) # 207,696
-
-```
 
 ```{r}
 #| label: tmdtc-2021 # tmd that has been run through tax calculator
 #| output: false
 
-tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv"))
-glimpse(tmdtc2021)
+# do one or the other
+# tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
+tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
+
 ns(tmdtc2021)
+glimpse(tmdtc2021)
 
 ```
 
-## Explore the tmd 2021 file (tmd_2021.csv)
-
-### Treatment of aggregate records
-
-Here is what the 2015 PUF documentation (p.3) says about aggregate records:
-
-![](images/clipboard-2840902240.png)
-
-I had raised concerns about the importance of these records - capital gains, in particular, are disproportionately large on one of these records – and said that I think we should explore in the future whether there is information in these 4 records that we can use. However, for purposes of the current project we agreed - as other modelers using previous PUFs had done - that the proper and conservative approach for now is to exclude these records from our tmd files. We can revisit in the future whether there are ways we can use information from these records to improve upon our simple rule of excluding them.
-
-However, these 4 records nonetheless appear to be in our tmd files. The table below shows, for tmd_2021.csv:
-
--   RECID for the 4 aggregate records
--   tmd values in 2021 for s006 (our final weight), c00100 (AGI, calculated), c01000 (net capital gains, calculated), and taxbc (tax before credits), each with _tmd suffix,
--   weighted values for the tmd c00100 and c01000 variables, with wtd_ prefix (weighted by s006_tmd)
--   raw puf values in 2015 for e00100 (AGI) and e00100 (net capital gains), with _puf suffix
--   I do not show original puf weights or pre-optimization tmd weights because the changes were not significant enough to be concerning
-
-A few observations:
-
--   First and foremost, we don't want the 4 aggregate records in our output file and should remove them.
--   The extraordinary nature of these records is worth remembering: for example, RECID 999999 has average AGI of \$369.3 million, and weighted capital gains are \$111 billion (out of about \$2 trillion).
--   That certainly means these 4 records will have thrown off our optimized reweighting significantly and it will be important to see how things change after we remove them.
--   Strange things have happened to these records as we moved from the raw 2015 puf to the extrapolated (uprated), reweighted tmd file for 2021. For example, raw 2015 AGI (e00100) on RECID 999996 changed from -\$96.4 million to calculated AGI in 2021 of \$11.1 million. That may be just fine - it may be Tax-Calculator doing what it should be doing. We don't have to worry about it for these records but we do need to ask ourselves whether it suggests anything strange is going on that we should worry about for the other 225k records we have. I don't have anything particular I'm worried about, it's just an observation that I think we need to think about.
-
- Seems like it would be a good idea to have a test for whether aggregate records are included.
-
 
 ```{r}
-#| label: tmdtc-2021-aggregate-records
-#| output: true
+#| label: prepare-tmd_2021.csv
+#| output: false
+
+# ycuts ----
+ycut19 <- c(-Inf, 1, 
+            seq(5e3, 30e3, 5e3),
+            40e3, 50e3, 75e3, 100e3,
+            200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+ycut22 <- c(-Inf, 
+            seq(5e3, 60e3, 5e3),
+            75e3, 100e3, 200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+# ycut19: filers tab11, tab12, tab14
+# ycut22: filers tab21
+
+# y19filertabs <- c("tab11", "tab12", "tab14")
+# y22filertabs <- c("tab21")
+
+
+# c00100, c01000, c02500, c04800, e00200, e00300, e00400, e00600, e00900, e01500, e02400, mars1, mars2, mars3, mars4
+
+# count(xtargets, tmdname, vtype)
+
+ns(tmdtc2021)
+glimpse(tmdtc2021)
+summary(tmdtc2021 |> select(any_of(ns(tmdtc2021))))
+
+vars <- c("c00100", "c01000neg", "c01000pos", "c02500", "c04800", "e00200", "e00300", "e00400", "e00600", "e00900neg", "e00900pos",  "e001500", "e002300", "e002400",
+          "e17500", "e18400")
+
+tmd2 <- tmdtc2021 |>
+  lcnames()|>
+  filter(data_source==1) |>
+  mutate(ycut19=cut(c00100, ycut19, right=FALSE),
+         incsort19=as.integer(ycut19) + 1L,
+         ycut22=cut(c00100, ycut22, right=FALSE),
+         incsort22=as.integer(ycut22) + 1L) |>  # incsort will match with targets file
+  mutate(c01000neg = c01000 * (c01000 < 0) * sign(c01000),
+         c01000pos = c01000 * (c01000 > 0) * sign(c01000)) |> 
+  mutate(e00900neg = e00900 * (e00900 < 0) * sign(e00900),
+         e00900pos = e00900 * (e00900 > 0) * sign(e00900)) |> 
+  select(s006, s006_original, incsort19, ycut19, incsort22, ycut22, any_of(vars)) |> 
+  mutate(across(any_of(vars),
+                ~(. != 0) * 1,
+                .names = "{.col}_nnz"))
+ht(tmd2)
+ns(tmd2)
+summary(tmd2)
+
+# get summaries for y19 and y22 vars
+ptargets2 |> filter(year==2021, datatype=="filers", nranges==23) |> select(irsvname) |> distinct() |> pull(irsvname)
+count(uxtargets, tmdname)
+count(xtargets, tmdname)
+(y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==20) |> select(tmdname) |> distinct() |> pull(tmdname))
+(y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==23) |> select(tmdname) |> distinct() |> pull(tmdname))
+
+# djb start here
+tmd_ycut19 <- tmd2 |>
+  select(-c(ycut22, incsort22)) |> 
+  rename(ycut=ycut19, incsort=incsort19) |> 
+  pivot_longer(-c(ycut, incsort, s006, s006_original),
+               names_to = "tmdname") |> 
+  pivot_longer(c(s006, s006_original), names_to = "weightvar", values_to = "weight") |> 
+  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar))
+
+glimpse(tmd_ycut19)
+count(tmd_ycut19, incsort)
+
+tmd_ycut22 <- tmd2 |> 
+  select(-c(ycut19, incsort19)) |> 
+  rename(ycut=ycut22, incsort=incsort22) |> 
+  pivot_longer(-c(ycut, incsort, s006, s006_original),
+               names_to = "tmdname") |> 
+  pivot_longer(c(s006, s006_original), names_to = "weightvar", values_to = "weight") |> 
+  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar))
+
+glimpse(tmd_ycut22)
+count(tmd_ycut22, incsort)
+
+sums_ycut19 <- tmd_ycut19 |> 
+  summarise(value=sum(value), .by=c(weightvar, tmdname)) |> 
+  mutate(incsort=1)
+
+sums_ycut19 <- tmd_ycut19 |> 
+  summarise(value=sum(value), .by=c(weightvar, tmdname)) |> 
+  mutate(incsort=1)
+
+
+tmd4 <- bind_rows(tmd3, sums) |> 
+  mutate(year=2021, datatype="filers")
+tmd4
+ns(tmd4)
+count(tmd4, tmdname)
+count(uxtargets, tmdname, table)
+
+```
+
+
+### Create comparison file
+
+```{r}
+#| label: comp-file
+#| output: false
+
+comp <- tmd4 |> 
+  inner_join(uxtargets,
+            by = join_by(tmdname, incsort, year, datatype)) |> 
+  select(contains("name"), vnbase, datatype, vtype, table, weightvar, incsort, incrange, ptarget, value) |> 
+  mutate(diff=value - ptarget,
+         pdiff=diff / ptarget,
+         absdiff=abs(diff),
+         abspdiff=abs(pdiff))
+comp
+count(comp, tmdname)
+
+```
+
+
+### Examine results
+```{r}
+#| label: examine
 #| column: page
 
-df <- left_join(
-  tmdtc2021 |> 
-    select(recid=RECID, 
-         s006_tmd=s006, c00100_tmd=c00100, c01000_tmd=c01000, taxbc_tmd=taxbc) |> 
-    filter(recid >= 999000),
-  
-  pufraw2015 |> 
-    select(recid, e00100_puf=e00100, e01000_puf=e01000) |> 
-    filter(recid >= 999000),
-  
-  by = join_by(recid))  |> 
-  mutate(across(c(c00100_tmd, c01000_tmd, taxbc_tmd),
-                \(x) s006_tmd * x,
-                .names = "wtd_{.col}")) |> 
-  arrange(recid)
 
-df |> 
-  gt() |> 
-  fmt_number(columns=-c(recid, s006_tmd),
-             # scale=1e-9,
-             decimals=0) |>
-  fmt_number(columns=s006_tmd,
-             decimals = 2)
+dollcols <- c("ptarget", "value", "diff", "absdiff")
+tab <- comp |> 
+  mutate(across(any_of(dollcols),
+                \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
+  select(weightvar, vtype, vnbase, tmdname, irsvname, incsort, incrange, ptarget:abspdiff) |> 
+  arrange(weightvar, vtype, vnbase, tmdname, incsort) |> 
+  DT::datatable(rownames = FALSE,
+            options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 20),
+            filter="top") |>
+    formatCurrency(columns = dollcols, currency="", digits=2) |>
+    formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
+
+tab
 
 ```
 
 
-### Negative s006
 
-On tmd_2021.csv, we have 2,012 records on which s006 is negative. No records have negative s006_original, the weight immediately before optimized reweighting. Thus, the optimization is causing this.
 
-The negative-s006 records represent 84.5 thousand tax returns and result in weighted tax before credits of negative $1.7 billion. We had agreed to make sure optimized weights could not be negative and I thought had accomplished that for a while. 
+<!-- IRS targets subset -->
 
-Seems like it would be a good idea to have a test for whether we have negative weights.
+<!-- ```{r} -->
+<!-- #| label: targets-subset -->
+<!-- #| output: false -->
 
-```{r}
+<!-- years <- 2021 -->
 
-tmdtc2021 |> 
-  filter(s006 < 0) |> 
-  summarise(n=n(), mean=mean(s006), median=median(s006), min=min(s006), wtd_n=sum(s006), wtd_taxbc=sum(s006 * taxbc)) |> 
-  gt() |> 
-  fmt_number(columns=c(n, wtd_taxbc),
-             decimals = 0) |> 
-  fmt_number(columns=-c(n, wtd_taxbc),
-             decimals = 2)
+<!-- irs_tab11 <- ptargets |>  -->
+<!--   filter(year %in% years,  -->
+<!--          table=="tab11",  -->
+<!--          datatype=="taxable", -->
+<!--          incsort > 1, -->
+<!--          vname %in% c("agi", "nret_all", "tottax")) |>  -->
+<!--   select(year, incsort, incrange, vname, value=ptarget) |>  -->
+<!--   mutate(file="irs", -->
+<!--          vname=case_when(vname=="nret_all" ~ "nret", -->
+<!--                          vname=="tottax" ~ "irstottax", -->
+<!--                          .default = vname), -->
+<!--          value=ifelse(!str_detect(vname, "nret"), value * 1000, value)) -->
 
-```
+
+<!-- stub <- irs_tab11 |>  -->
+<!--   select(year, vname, incsort, incrange) |>  -->
+<!--   distinct() |>  -->
+<!--   crossing(file=c("irs", "tmd")) -->
+<!-- count(stub, year, file, incsort, incrange) -->
+
+<!-- ``` -->
+
+
+<!-- ## Get puf and base tmd files -->
+
+<!-- ```{r} -->
+<!-- #| label: pufraw-2015 -->
+<!-- #| output: false -->
+
+<!-- puf <- vroom(ppath) -->
+
+<!-- pufraw2015 <- puf |>  -->
+<!--   btools::lcnames() |>  -->
+<!--   mutate(year=2015, s006=s006 / 100) -->
+
+<!-- glimpse(pufraw2015) -->
+<!-- ns(pufraw2015) -->
+<!-- rm(puf) -->
+
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- #| label: weights-tmd -->
+<!-- #| output: false -->
+
+<!-- wtsraw <- vroom(fs::path(stor_path, "tmd_weights.csv.gz")) -->
+<!-- wtsums <- wtsraw |>  -->
+<!--   mutate(recnum=row_number()) |>  -->
+<!--   pivot_longer(-recnum, names_to = "year", values_to = "weight") |>  -->
+<!--   mutate(year=as.integer(str_sub(year, 3, 6)), -->
+<!--          weight=weight / 100.) |>  -->
+<!--   summarise(weight=sum(weight), .by=year) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- #| label: puftc-2021 # puf that Nikhil ran through tax calculator -->
+<!-- #| output: false -->
+
+<!-- puftc2021 <- vroom(fs::path(stor_path, "puf_2021.csv")) |>  -->
+<!--   lcnames() |>  -->
+<!--   mutate(year=2021, s006=s006 / 100) -->
+<!-- glimpse(puftc2021) # 207,696 -->
+
+<!-- ns(puftc2021) -->
+
+<!-- ``` -->
+
+<!-- ## Get Nikhil's summary file TBD -->
+
+<!-- ```{r} -->
+<!-- #| label: Nikhil-summary -->
+<!-- #| output: false -->
+
+<!-- # dir <- r"(C:\Users\donbo\Downloads)" -->
+<!-- dir <- here::here("data", "tmd") -->
+<!-- fn <- "soi_from_puf_tmd_2021.csv" -->
+<!-- df <- read_csv(path(dir, fn)) -->
+
+<!-- # Use Nikhil's variable names for the GitHub issue -->
+<!-- # df |>  -->
+<!-- #   filter(Variable == "adjusted_gross_income", -->
+<!-- #          `Filing status` == "All", -->
+<!-- #          !Count, -->
+<!-- #          `Taxable only`, -->
+<!-- #          !`Full population`) |>  -->
+<!-- #   select(-c(`Filing status`, Count, `Taxable only`, `Full population`)) |> # for readability, drop columns with only one value -->
+<!-- #   arrange(`AGI lower bound`, desc(`AGI upper bound`), OK) |>  -->
+<!-- #   gt() |>  -->
+<!-- #   fmt_number(columns = c(`AGI lower bound`, `AGI upper bound`), -->
+<!-- #              scale=1, -->
+<!-- #              decimals = 0) |>   -->
+<!-- #   fmt_number(columns = Value:`Absolute error`, -->
+<!-- #              scale=1e-9, -->
+<!-- #              decimals = 2) |>  -->
+<!-- #   fmt_percent(columns=c(`Relative error`, `Absolute relative error`), -->
+<!-- #               decimals=1) -->
+
+<!-- glimpse(df) -->
+
+
+<!-- df2 <- df |>  -->
+<!--   select(var=1, fstat=2, agilb=3, agiub=4, count=5, -->
+<!--          taxable=6, fullpop=7, value=8, soivalue=9, error=10, abserr=11, relerr=12, absrelerr=13, ok=14) -->
+<!-- glimpse(df2) -->
+<!-- count(df2, fstat) -->
+<!-- count(df2 |> filter(var=="adjusted_gross_income", count==TRUE), ) -->
+<!-- df2 |> filter(var=="adjusted_gross_income") -->
+
+<!-- df2 |> filter(count==TRUE, taxable==TRUE, fstat=="All", agilb==-Inf, agiub==Inf) -->
+<!-- df2 |> filter(count==TRUE, taxable==TRUE, agilb==-Inf, agiub==Inf) |> arrange(desc(abserr)) -->
+
+<!-- df2 |>  -->
+<!--   filter(taxable, agilb==-Inf, agiub==Inf, count==FALSE, fullpop==FALSE) |>  -->
+<!--   select(var, fstat, value:absrelerr) |>  -->
+<!--   arrange(desc(abserr)) |>  -->
+<!--   gt() |>  -->
+<!--   fmt_number(columns = value:abserr, -->
+<!--              scale=1e-9, -->
+<!--              decimals = 2) |>  -->
+<!--   fmt_percent(columns=c(relerr, absrelerr), -->
+<!--               decimals=1) -->
+
+
+<!-- df2 |>  -->
+<!--   filter(agilb==-Inf, agiub==Inf, count==TRUE) |>  -->
+<!--   arrange(var) -->
+
+
+<!-- df2 |>  -->
+<!--   filter(taxable, agilb==-Inf, agiub==Inf, count==FALSE, fullpop==TRUE)  -->
+
+<!-- df2 |>  -->
+<!--   filter(taxable, var=="adjusted_gross_income", fstat=="All", count==FALSE, fullpop==FALSE) |>  -->
+<!--   arrange(agilb, agiub) -->
+<!--   select(var, agilb, agiub, value:absrelerr) |>  -->
+<!--   distinct() |>  -->
+<!--   arrange(agilb, agiub) |>  -->
+<!--   gt() |>  -->
+<!--   fmt_number(columns = c(agilb, agiub), -->
+<!--              scale=1, -->
+<!--              decimals = 0) |>  -->
+<!--   fmt_number(columns = value:abserr, -->
+<!--              scale=1e-9, -->
+<!--              decimals = 2) |>  -->
+<!--   fmt_percent(columns=c(relerr, absrelerr), -->
+<!--               decimals=1) -->
+
+
+<!-- ``` -->
+
+
+<!-- ## Get alternative penalty files -->
+
+<!-- ```{r} -->
+<!-- #| label: penalty-data -->
+<!-- #| output: false -->
+
+<!-- pen0 <- vroom(fs::path(scratch_path, "tmdout_penalty0.csv")) |> mutate(penweight=0) -->
+<!-- pen.25 <- vroom(fs::path(scratch_path, "tmdout_penalty0.25.csv")) |> mutate(penweight=.25) -->
+<!-- pen.5 <- vroom(fs::path(scratch_path, "tmdout_penalty0.5.csv")) |> mutate(penweight=.5) -->
+<!-- pen.75 <- vroom(fs::path(scratch_path, "tmdout_penalty0.75.csv")) |> mutate(penweight=.75) -->
+
+<!-- pen0_original <- pen0 |>  -->
+<!--   mutate(s006=s006_original, penweight=-1) -->
+
+<!-- pendf <- bind_rows(pen0, pen.25, pen.5, pen.75, pen0_original) -->
+
+<!-- pendf |>  -->
+<!--   summarise(n=n(), wtdn=sum(s006), wtdn_original=sum(s006_original), .by=penweight) -->
+
+<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
+
+<!-- qratios <- pendf |>  -->
+<!--   mutate(ratio=s006 / s006_original) |>  -->
+<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
+<!--             .by = penweight) -->
+
+<!-- qratios |>  -->
+<!--   unnest_wider(col = qratio) -->
+
+<!-- pendf |>  -->
+<!--   mutate(pdiff=s006 / s006_original -1) |>  -->
+<!--   select(RECID, s006, s006_original, pdiff) |>  -->
+<!--   ht() -->
+
+<!-- pendf |>  -->
+<!--   mutate(pdiff=s006 / s006_original -1) |>  -->
+<!--   summarise(ssd=sum(pdiff^2), -->
+<!--             .by = penweight) -->
+
+
+<!-- ``` -->
+
+<!-- ## Check aggregate values for important variables -->
+
+<!-- ```{r} -->
+<!-- ptsub <- ptargets |>  -->
+<!--   filter(datatype=="taxable", year==2021, vname %in% pimap$irs_varname) |>  -->
+<!--   # filter(!(vname=="agi" & table!="tab11")) |>  -->
+<!--   select(datatype, year, table, incsort, incrange, vname, ptarget) |>  -->
+<!--   distinct() -->
+
+<!-- count(ptsub, vname) -->
+
+<!-- ptsub |> filter(vname=="agi") |> arrange(incsort, table) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- (vars_to_make <- setdiff(pimap$puf_based_name, names(tmdtc2021))) -->
+
+<!-- tmdtp <- tmdtc2021 |>   -->
+<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
+<!--          file="tmd") |>  -->
+<!--   filter(irstottax > 0) |>  -->
+<!--   select(file, year=FLPDYR, s006, any_of(pimap$puf_based_name)) |>  -->
+<!--   pivot_longer(cols = -c(file, year, s006), names_to = "puf_based_name", values_to = "tmd") -->
+<!-- ns(tmdtp) -->
+<!-- glimpse(tmdtp) -->
+
+
+<!-- comp <- tmdtp |>  -->
+<!--   summarise(tmd=sum(s006 * tmd), .by = c(puf_based_name, year)) |>  -->
+<!--   left_join(pimap |>  -->
+<!--               filter(!is.na(irs_varname)) |>  -->
+<!--               select(puf_based_name, irs_varname), -->
+<!--             by = join_by(puf_based_name)) |>  -->
+<!--   left_join(ptsub |>  -->
+<!--               filter(year==2021, incsort==1) |>  -->
+<!--               select(irs_varname=vname, irs=ptarget) |>  -->
+<!--               distinct() |>  -->
+<!--               mutate(irs=irs * 1000), -->
+<!--             by = join_by(irs_varname)) |>  -->
+<!--   select(year, puf_based_name, irs_varname, irs, tmd) |>  -->
+<!--   filter(!(is.na(irs))) |>  -->
+<!--   mutate(diff=tmd - irs, -->
+<!--          pdiff=diff / irs) -->
+
+<!-- comp -->
+
+
+
+<!-- ``` -->
+
+
+<!-- ## Check baseline agi by income range for taxable -->
+
+<!-- ```{r} -->
+
+<!-- taxpayers <- tmdtc2021 |>   -->
+<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
+<!--          file="tmd") |>  -->
+<!--   filter(irstottax > 0) |>  -->
+<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
+
+<!-- taxpayers <- pen0_original |>   -->
+<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
+<!--          file="tmd") |>  -->
+<!--   filter(irstottax > 0) |>  -->
+<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
+
+<!-- taxpayers <- pen0_original |>   -->
+<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
+<!--          file="tmd") |>  -->
+<!--   # filter(irstottax > 0) |>  -->
+<!--   filter(data_source==1) |>  -->
+<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
+
+<!-- taxpayers <- pen0 |>   -->
+<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
+<!--          file="tmd") |>  -->
+<!--   # filter(irstottax > 0) |>  -->
+<!--   filter(data_source==1) |>  -->
+<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
+
+<!-- collapse <- taxpayers |> -->
+<!--   mutate(ycut=cut(c00100, ycut19, right=FALSE), -->
+<!--          incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file -->
+<!--   summarise(tmdnrecs=n(), -->
+<!--             nret = sum(s006),  -->
+<!--             agi = sum(s006 * c00100), -->
+<!--             irstottax=sum(s006 * irstottax), -->
+<!--             .by=c(file, year, incsort, ycut)) |> -->
+<!--   pivot_longer(cols=-c(file, year, incsort, ycut, tmdnrecs), names_to = "vname", values_to = "tmd") -->
+
+<!-- dfwide <- stub |>  -->
+<!--   filter(file!="irs") |>  -->
+<!--   select(-file) |>  -->
+<!--   left_join(collapse |> select(-ycut), join_by(year, vname, incsort)) |>  -->
+<!--   left_join(irs_tab11 |>  select(year, incsort, vname, irs=value), -->
+<!--             by = join_by(year, vname, incsort)) -->
+
+<!-- dflong <- stub |>  -->
+<!--   filter(file!="irs") |>  -->
+<!--   left_join(collapse |> select(-ycut), join_by(year, vname, incsort, file)) |>  -->
+<!--   bind_rows(irs_tab11) -->
+
+<!-- glimpse(dflong) -->
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- #| label: tabwide -->
+
+<!-- tabtmd(dfwide, 2021, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1) -->
+
+<!-- tabtmd(dfwide, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1) -->
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- tab(dflong, 2021, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1) -->
+
+<!-- tab(dflong, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1) -->
+
+<!-- ``` -->
+
+
+<!-- ## Explore the tmd 2021 file (tmd_2021.csv) -->
+
+<!-- ### Treatment of aggregate records -->
+
+<!-- Here is what the 2015 PUF documentation (p.3) says about aggregate records: -->
+
+<!-- ![](images/clipboard-2840902240.png) -->
+
+<!-- I had raised concerns about the importance of these records - capital gains, in particular, are disproportionately large on one of these records – and said that I think we should explore in the future whether there is information in these 4 records that we can use. However, for purposes of the current project we agreed - as other modelers using previous PUFs had done - that the proper and conservative approach for now is to exclude these records from our tmd files. We can revisit in the future whether there are ways we can use information from these records to improve upon our simple rule of excluding them. -->
+
+<!-- However, these 4 records nonetheless appear to be in our tmd files. The table below shows, for tmd_2021.csv: -->
+
+<!-- -   RECID for the 4 aggregate records -->
+<!-- -   tmd values in 2021 for s006 (our final weight), c00100 (AGI, calculated), c01000 (net capital gains, calculated), and taxbc (tax before credits), each with _tmd suffix, -->
+<!-- -   weighted values for the tmd c00100 and c01000 variables, with wtd_ prefix (weighted by s006_tmd) -->
+<!-- -   raw puf values in 2015 for e00100 (AGI) and e00100 (net capital gains), with _puf suffix -->
+<!-- -   I do not show original puf weights or pre-optimization tmd weights because the changes were not significant enough to be concerning -->
+
+<!-- A few observations: -->
+
+<!-- -   First and foremost, we don't want the 4 aggregate records in our output file and should remove them. -->
+<!-- -   The extraordinary nature of these records is worth remembering: for example, RECID 999999 has average AGI of \$369.3 million, and weighted capital gains are \$111 billion (out of about \$2 trillion). -->
+<!-- -   That certainly means these 4 records will have thrown off our optimized reweighting significantly and it will be important to see how things change after we remove them. -->
+<!-- -   Strange things have happened to these records as we moved from the raw 2015 puf to the extrapolated (uprated), reweighted tmd file for 2021. For example, raw 2015 AGI (e00100) on RECID 999996 changed from -\$96.4 million to calculated AGI in 2021 of \$11.1 million. That may be just fine - it may be Tax-Calculator doing what it should be doing. We don't have to worry about it for these records but we do need to ask ourselves whether it suggests anything strange is going on that we should worry about for the other 225k records we have. I don't have anything particular I'm worried about, it's just an observation that I think we need to think about. -->
+
+<!--  Seems like it would be a good idea to have a test for whether aggregate records are included. -->
+
+
+<!-- ```{r} -->
+<!-- #| label: tmdtc-2021-aggregate-records -->
+<!-- #| output: true -->
+<!-- #| column: page -->
+
+<!-- df <- left_join( -->
+<!--   tmdtc2021 |>  -->
+<!--     select(recid=RECID,  -->
+<!--          s006_tmd=s006, c00100_tmd=c00100, c01000_tmd=c01000, taxbc_tmd=taxbc) |>  -->
+<!--     filter(recid >= 999000), -->
+
+<!--   pufraw2015 |>  -->
+<!--     select(recid, e00100_puf=e00100, e01000_puf=e01000) |>  -->
+<!--     filter(recid >= 999000), -->
+
+<!--   by = join_by(recid))  |>  -->
+<!--   mutate(across(c(c00100_tmd, c01000_tmd, taxbc_tmd), -->
+<!--                 \(x) s006_tmd * x, -->
+<!--                 .names = "wtd_{.col}")) |>  -->
+<!--   arrange(recid) -->
+
+<!-- df |>  -->
+<!--   gt() |>  -->
+<!--   fmt_number(columns=-c(recid, s006_tmd), -->
+<!--              # scale=1e-9, -->
+<!--              decimals=0) |> -->
+<!--   fmt_number(columns=s006_tmd, -->
+<!--              decimals = 2) -->
+
+<!-- ``` -->
+
+
+<!-- ### Negative s006 -->
+
+<!-- On tmd_2021.csv, we have 2,012 records on which s006 is negative. No records have negative s006_original, the weight immediately before optimized reweighting. Thus, the optimization is causing this. -->
+
+<!-- The negative-s006 records represent 84.5 thousand tax returns and result in weighted tax before credits of negative $1.7 billion. We had agreed to make sure optimized weights could not be negative and I thought had accomplished that for a while.  -->
+
+<!-- Seems like it would be a good idea to have a test for whether we have negative weights. -->
+
+<!-- ```{r} -->
+
+<!-- tmdtc2021 |>  -->
+<!--   filter(s006 < 0) |>  -->
+<!--   summarise(n=n(), mean=mean(s006), median=median(s006), min=min(s006), wtd_n=sum(s006), wtd_taxbc=sum(s006 * taxbc)) |>  -->
+<!--   gt() |>  -->
+<!--   fmt_number(columns=c(n, wtd_taxbc), -->
+<!--              decimals = 0) |>  -->
+<!--   fmt_number(columns=-c(n, wtd_taxbc), -->
+<!--              decimals = 2) -->
+
+<!-- ``` -->
+
+
+<!-- ### Weights and changes in weights -->
+
+<!-- ```{r} -->
+<!-- ns(tmdtc2021) -->
+
+<!-- vdiff <- function(var, s006, s006_original){ -->
+<!--   (s006 - s006_original) * var -->
+<!-- } -->
+
+<!-- df <- tmdtc2021 |>  -->
+<!--   select(recid=RECID, data_source, s006, s006_original, MARS, c00100, taxbc) |>  -->
+<!--   mutate(ratio=s006 / s006_original,  -->
+<!--          dweight=s006 - s006_original, -->
+<!--          dagi=vdiff(c00100, s006, s006_original), -->
+<!--          dtaxbc=vdiff(taxbc, s006, s006_original) -->
+<!--          )  -->
+
+<!-- sum(df$s006) / sum(df$s006_original) -->
+
+<!-- summary(df) -->
+
+<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
+
+<!-- qvals <- df |>  -->
+<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
+<!--             qdweight=quantile(dweight, probs = p) |> list()) -->
+
+
+<!-- qvals <- df |>  -->
+<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
+<!--             qdweight=quantile(dweight, probs = p) |> list(), -->
+<!--             .by=MARS) |>  -->
+<!--   arrange(MARS) -->
+
+<!-- qvals |>  -->
+<!--   unnest_wider(col = qratio) -->
+
+<!-- qvals |>  -->
+<!--   unnest_wider(col = qdweight) -->
+
+
+<!-- df |>  -->
+<!--   arrange(desc(ratio)) |>  -->
+<!--   slice_max(ratio, n=20) -->
+
+<!-- df |>  -->
+<!--   arrange(desc(abs(dtaxbc))) |>  -->
+<!--   slice_max(abs(dtaxbc), n=20) -->
+
+<!-- df |>  -->
+<!--   arrange(desc(abs(dweight)) |>  -->
+<!--   slice_max(dweight, n=20) -->
+
+
+<!-- df |>  -->
+<!--   arrange(desc(dtaxbc)) |>  -->
+<!--   slice_max(dtaxbc, n=20) -->
+
+
+<!-- ``` -->
+
+
+<!-- ## Reweighting analysis -->
+
+<!-- ```{r} -->
+<!-- rwdir <- here::here("data", "reweighting_files") -->
+
+<!-- tmdbase <- vroom(path(rwdir, "tmd_2021_baseline.csv")) -->
+<!-- glimpse(tmdbase) -->
+
+<!-- tmdalt <- vroom(path(rwdir, "tmd_2021_penalty_0.1.csv")) -->
+<!-- tmdalt <- vroom(path(rwdir, "tmd_2021_penalty_1.0.csv")) -->
+
+<!-- sum(tmdbase$s006) -->
+<!-- sum(tmdalt$s006) -->
+
+<!-- df <- bind_rows( -->
+<!--   tmdbase |> mutate(ftype="base"), -->
+<!--   tmdalt |>  mutate(ftype="alt")) |>  -->
+<!--   mutate(wdiff=s006 - s006_original, -->
+<!--          ratio=s006 / s006_original) -->
+
+<!-- df2 <- df |>  -->
+<!--   select(ftype, recid=RECID, data_source, s006, s006_original, MARS, c00100, taxbc) |>  -->
+<!--   mutate(ratio=s006 / s006_original,  -->
+<!--          dweight=s006 - s006_original, -->
+<!--          dagi=vdiff(c00100, s006, s006_original), -->
+<!--          dtaxbc=vdiff(taxbc, s006, s006_original) -->
+<!--          )  -->
+
+<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
+<!-- qvals <- df2 |>  -->
+<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
+<!--             qdweight=quantile(dweight, probs = p) |> list(), -->
+<!--             .by=ftype) |>  -->
+<!--   arrange(ftype) -->
+
+<!-- qvals |>  -->
+<!--   unnest_wider(col = qratio) -->
+
+<!-- qvals |>  -->
+<!--   unnest_wider(col = qdweight) -->
+
+
+<!-- df |>  -->
+<!--   arrange(desc(ratio)) |>  -->
+<!--   slice_max(ratio, n=20) -->
+
+<!-- df |>  -->
+<!--   arrange(desc(dweight)) |>  -->
+<!--   slice_max(dweight, n=20) -->
+
+<!-- df |>  -->
+<!--   arrange(desc(dtaxbc)) |>  -->
+<!--   slice_max(dtaxbc, n=20) -->
+
+
+
+
+<!-- ``` -->
 
 
 

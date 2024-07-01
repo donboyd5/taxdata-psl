@@ -12,6 +12,7 @@ data/IRS spreadsheets/
 data/tmd/
 documents/
 ignore/
+OLD_targets_mockup/
 tmd/images/
 
 # filetypes and files to ignore
