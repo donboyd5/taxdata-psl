@@ -176,6 +176,12 @@ ptargets |> filter(table=="tab21", datatype=="filers") |> count(incsort, incrang
 # get targets and proper names for variables we have mappings for
 
 # prepare targets - I should have done it like this in the first place ----
+# convert losses to negative numbers
+count(ptargets, vname)
+ptargets |> 
+  filter(str_detect(vname, "loss"), incsort==1) |> 
+  select(table, datatype, year, vname, ptarget)
+
 ptargets2 <- ptargets |> 
   select(table, datatype, year, incsort, incrange, vname, ptarget) |> 
   mutate(irsvname=case_when(vname=="nret_all" ~ "nret_agi",
@@ -192,13 +198,19 @@ ptargets2 <- ptargets |>
          irsvname=paste0(vnbase, "_", vtype),
          ptarget=ifelse(vtype=="amount", ptarget * 1000, ptarget)
          ) |> 
+  mutate(ptarget=ifelse(str_detect(vnbase, "loss") & vtype=="amount", ptarget * -1.0, ptarget)) |> 
   select(table, datatype, year, incsort, incrange, vnbase, vtype, irsvname, ptarget) |> 
-  mutate(nranges=n(), .by=c(table, datatype, year, vnbase, vtype, irsvname))
+  mutate(nranges=sum(incsort != 1), .by=c(table, datatype, year, vnbase, vtype, irsvname))
 
 ptargets2
 count(ptargets2, year, table, nranges)
 count(ptargets2 |> filter(year==2021, datatype=="filers"), table, nranges)
 count(ptargets2 |> filter(year==2021, datatype=="filers"), vnbase, vtype, irsvname)
+# ptargets2 |> 
+#   filter(str_detect(vnbase, "loss"), vtype=="amount", incsort==1) |> 
+#   select(table, datatype, year, vnbase, vtype, ptarget)
+# ptargets2 |> filter(nranges==0, year==2021)
+# sum(incsort !=1)
 
 ptargets2 |> 
   filter(year==2021, datatype=="filers") |> 
@@ -292,7 +304,9 @@ ns(tmdtc2021)
 glimpse(tmdtc2021)
 summary(tmdtc2021 |> select(any_of(ns(tmdtc2021))))
 
-vars <- c("c00100", "c01000neg", "c01000pos", "c02500", "c04800", "e00200", "e00300", "e00400", "e00600", "e00900neg", "e00900pos",  "e001500", "e002300", "e002400",
+vars <- c("c00100", "c01000neg", "c01000pos", "c02500", "c04800", "e00200", "e00300", "e00400", "e00600",
+          "e00900neg", "e00900pos",
+          "e01500", "e02300", "e02400",
           "e17500", "e18400")
 
 tmd2 <- tmdtc2021 |>
@@ -302,10 +316,10 @@ tmd2 <- tmdtc2021 |>
          incsort19=as.integer(ycut19) + 1L,
          ycut22=cut(c00100, ycut22, right=FALSE),
          incsort22=as.integer(ycut22) + 1L) |>  # incsort will match with targets file
-  mutate(c01000neg = c01000 * (c01000 < 0) * sign(c01000),
-         c01000pos = c01000 * (c01000 > 0) * sign(c01000)) |> 
-  mutate(e00900neg = e00900 * (e00900 < 0) * sign(e00900),
-         e00900pos = e00900 * (e00900 > 0) * sign(e00900)) |> 
+  mutate(c01000neg = c01000 * (c01000 < 0),
+         c01000pos = c01000 * (c01000 > 0)) |> 
+  mutate(e00900neg = e00900 * (e00900 < 0),
+         e00900pos = e00900 * (e00900 > 0)) |> 
   select(s006, s006_original, incsort19, ycut19, incsort22, ycut22, any_of(vars)) |> 
   mutate(across(any_of(vars),
                 ~(. != 0) * 1,
@@ -321,17 +335,19 @@ count(xtargets, tmdname)
 (y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==20) |> select(tmdname) |> distinct() |> pull(tmdname))
 (y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==23) |> select(tmdname) |> distinct() |> pull(tmdname))
 
-# djb start here
+# djb RESUME here ---
 tmd_ycut19 <- tmd2 |>
   select(-c(ycut22, incsort22)) |> 
   rename(ycut=ycut19, incsort=incsort19) |> 
   pivot_longer(-c(ycut, incsort, s006, s006_original),
                names_to = "tmdname") |> 
   pivot_longer(c(s006, s006_original), names_to = "weightvar", values_to = "weight") |> 
-  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar))
+  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar)) |> 
+  mutate(nranges=19)
 
 glimpse(tmd_ycut19)
 count(tmd_ycut19, incsort)
+count(tmd_ycut19, tmdname)
 
 tmd_ycut22 <- tmd2 |> 
   select(-c(ycut19, incsort19)) |> 
@@ -339,26 +355,30 @@ tmd_ycut22 <- tmd2 |>
   pivot_longer(-c(ycut, incsort, s006, s006_original),
                names_to = "tmdname") |> 
   pivot_longer(c(s006, s006_original), names_to = "weightvar", values_to = "weight") |> 
-  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar))
+  summarise(value=sum(value * weight), .by=c(tmdname, incsort, weightvar)) |> 
+  mutate(nranges=22)
 
 glimpse(tmd_ycut22)
 count(tmd_ycut22, incsort)
+count(tmd_ycut22, tmdname)
 
-sums_ycut19 <- tmd_ycut19 |> 
-  summarise(value=sum(value), .by=c(weightvar, tmdname)) |> 
+tmd_ycut <- bind_rows(tmd_ycut19, tmd_ycut22)
+
+sums_ycut <- tmd_ycut |> 
+  summarise(value=sum(value), .by=c(weightvar, tmdname, nranges)) |> 
   mutate(incsort=1)
 
-sums_ycut19 <- tmd_ycut19 |> 
-  summarise(value=sum(value), .by=c(weightvar, tmdname)) |> 
-  mutate(incsort=1)
+sums_ycut |> filter(tmdname=="c00100")
 
-
-tmd4 <- bind_rows(tmd3, sums) |> 
+tmd4 <- bind_rows(tmd_ycut, sums_ycut) |> 
   mutate(year=2021, datatype="filers")
 tmd4
 ns(tmd4)
 count(tmd4, tmdname)
 count(uxtargets, tmdname, table)
+
+count(tmd4, nranges)
+count(uxtargets, nranges)
 
 ```
 
@@ -371,34 +391,55 @@ count(uxtargets, tmdname, table)
 
 comp <- tmd4 |> 
   inner_join(uxtargets,
-            by = join_by(tmdname, incsort, year, datatype)) |> 
-  select(contains("name"), vnbase, datatype, vtype, table, weightvar, incsort, incrange, ptarget, value) |> 
+            by = join_by(tmdname, incsort, year, datatype, nranges)) |> 
+  select(contains("name"), vnbase, datatype, vtype, table, weightvar, nranges, incsort, incrange, ptarget, value) |> 
   mutate(diff=value - ptarget,
          pdiff=diff / ptarget,
          absdiff=abs(diff),
-         abspdiff=abs(pdiff))
+         abspdiff=abs(pdiff)) |> 
+  arrange(tmdname, datatype, table, weightvar, nranges, incsort)
+
 comp
+count(comp, nranges)
 count(comp, tmdname)
+head(comp)
 
 ```
 
 
 ### Examine results
+
+```{css}
+.dataTable {
+  font-size: 12px;
+}
+```
+
 ```{r}
 #| label: examine
 #| column: page
 
+dollar_columns <- c("ptarget", "value", "diff", "absdiff")
 
-dollcols <- c("ptarget", "value", "diff", "absdiff")
 tab <- comp |> 
-  mutate(across(any_of(dollcols),
+  mutate(across(any_of(dollar_columns),
                 \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
-  select(weightvar, vtype, vnbase, tmdname, irsvname, incsort, incrange, ptarget:abspdiff) |> 
+  mutate(weightvar=factor(weightvar), # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
+         incsort=factor(incsort),
+         vtype=factor(vtype),
+         vnbase=factor(vnbase)) |> 
+  select(weightvar, vtype, vnbase, tmdname, incsort, incrange, ptarget:abspdiff) |> 
   arrange(weightvar, vtype, vnbase, tmdname, incsort) |> 
   DT::datatable(rownames = FALSE,
-            options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 20),
+            options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 23), # autoWidth = TRUE, 
+            caption = htmltools::tags$caption(
+              style = 'caption-side: top; text-align: center;
+              font-size: 25px; font-weight: bold;',
+              '2021 filers (data_source==1); amounts are in $ billions; nreturns are numbers'
+              ),
+            width = "100%",
             filter="top") |>
-    formatCurrency(columns = dollcols, currency="", digits=2) |>
+    formatCurrency(columns = dollar_columns, currency="", digits=2) |>
     formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
 
 tab
