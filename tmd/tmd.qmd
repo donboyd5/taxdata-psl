@@ -264,13 +264,72 @@ uxtargets <- xtargets |>
 #| output: false
 
 # do one or the other
-# tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
-tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
+tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
+# tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
 
 ns(tmdtc2021)
 glimpse(tmdtc2021)
+# qbi = np.maximum(0, df.e00900 + df.e26270 + df.e02100 + df.e27200)
+
+df <- tmdtc2021 |> 
+  select(RECID, data_source, s006, s006_original, c00100, e00900, e26270, e02100, e27200, PT_binc_w2_wages, qbided) |> 
+  mutate(qbi=pmax(0, e00900 + e26270 + e02100 + e27200),
+         ratio=s006 / s006_original)
+
+summary(df)
+
+df |> 
+  filter(data_source==1) |> 
+  select(-c00100, -ratio, -data_source) |>  
+  pivot_longer(-c(RECID, s006, s006_original)) |> 
+  summarise(s006_original=sum(value * s006_original),
+            s006=sum(value * s006),
+            .by=name) |> 
+  mutate(diff=s006 - s006_original, pdiff=diff / s006_original) |>
+  left_join(utcvars |> select(name=vname, desc),
+            by = join_by(name)) |> 
+  gt() |> 
+  fmt_number(columns=s006_original:diff,
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns=pdiff,
+              decimals = 1)
+
+uxtargets
+count(uxtargets, tmdname, irsvname)
+
+uxtargets |> 
+  filter(tmdname %in% c("e00900pos", "e00900neg"), year==2021, incsort==1) |> 
+  summarise(ptarget=sum(ptarget))
 
 ```
+
+
+```{r}
+#| label: ctc-exploration
+
+df2 <- tmdtc2021 |> 
+  select(RECID, data_source, s006, s006_original, c00100, n24, nu06, nu13, nu18)
+summary(df2)
+
+df2 |>
+  select(-c00100) |> 
+  pivot_longer(-c(RECID, data_source, s006, s006_original)) |> 
+  summarise(s006_original=sum(value * s006_original),
+            s006=sum(value * s006),
+            .by=name) |> 
+  mutate(diff=s006 - s006_original, pdiff=diff / s006_original) |>
+  left_join(utcvars |> select(name=vname, desc),
+            by = join_by(name)) |> 
+  gt() |> 
+  fmt_number(columns=s006_original:diff,
+             scale=1e-6) |> 
+  fmt_percent(columns=pdiff,
+              decimals = 1)
+
+```
+
+
 
 
 ```{r}
@@ -335,7 +394,6 @@ count(xtargets, tmdname)
 (y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==20) |> select(tmdname) |> distinct() |> pull(tmdname))
 (y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==23) |> select(tmdname) |> distinct() |> pull(tmdname))
 
-# djb RESUME here ---
 tmd_ycut19 <- tmd2 |>
   select(-c(ycut22, incsort22)) |> 
   rename(ycut=ycut19, incsort=incsort19) |> 
@@ -443,6 +501,44 @@ tab <- comp |>
     formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
 
 tab
+
+```
+
+
+## Examine weights
+```{r}
+#| label: examine-weights
+
+glimpse(tmd2)
+ns(tmd2)
+
+ratios <- tmd2 |> 
+  mutate(ratio=s006 / s006_original)
+summary(ratios)
+
+cuts <- c(-Inf, 0, 10e3, 50e3, 100e3, 1e6, 10e6, 20e6, Inf)
+
+ratios |> 
+  mutate(ycut=cut(c00100, cuts)) |> 
+  ggplot(aes(x=ycut, y=ratio)) + 
+  geom_boxplot() +
+  geom_hline(yintercept = 1, colour="blue") +
+  geom_hline(yintercept = median(ratios$ratio), colour="red") +
+  scale_y_continuous(breaks=seq(0, 10, .25))
+
+ratios |> 
+  mutate(ycut=cut(c00100, cuts)) |> 
+  summarise(p25=p25(ratio),
+            p50=p50(ratio),
+            p75=p75(ratio), .by = ycut) |> 
+  pivot_longer(-ycut) |> 
+  filter(name=="p50") |> 
+  ggplot(aes(x=ycut, y=value, colour=name)) +
+  geom_point() +
+  geom_line(aes(group=1)) +
+  geom_hline()
+  
+
 
 ```
 
