@@ -17,6 +17,7 @@ tmd/images/
 
 # filetypes and files to ignore
 #  *.csv -- do allow potential_targets.csv
+*.html
 *.rds
 *~*  # temporary files
 growfactors.csv

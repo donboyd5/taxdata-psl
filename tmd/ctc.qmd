@@ -1,0 +1,483 @@
+---
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+# Analysis of Child Tax Credit info (tmd)
+
+## Setup
+
+```{r}
+#| label: includes
+#| output: false
+
+source(here::here("r", "libraries.r"))
+# library(jsonlite)
+# library(tidyjson)
+
+```
+
+```{r}
+#| label: constants-windows
+#| output: false
+
+# paths in the Windows part of my machine
+# this project
+
+tddir <- r"(E:\data\taxdata-psl)"
+# tpath <- here::here("data", "potential_targets.csv")
+
+targdir <- r"(E:\R_projects\projects\irs_targets\data)"
+tpath <- fs::path(targdir, "potential_targets.rds")
+
+# elsewhere in the windows part of my machine
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+```
+
+```{r}
+#| label: constants-linux
+#| output: false
+
+# Windows subsystem for linux (wsl) folders and filenames
+wsldir <- "/\\wsl.localhost"
+pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
+tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
+stor_path <- fs::path(wsldir, pydir, tmddir)
+scratch_path <- fs::path(wsldir, pydir, "scratch")
+
+```
+
+
+## Raw 2015 puf
+```{r}
+#| label: raw-puf
+#| output: false
+
+puf <- vroom(ppath)
+
+pufraw2015 <- puf |>
+  btools::lcnames() |>
+  mutate(year=2015, s006=s006 / 100)
+
+glimpse(pufraw2015)
+ns(pufraw2015)
+rm(puf)
+
+ctcpuf <- pufraw2015 |> 
+  select(recid, s006, agi=e00100, xtot, n24) |> # note that this is reported agi!!!
+  mutate(type="puf2015")
+
+```
+
+
+## taxdata 2011 puf advanced to 2021 and put through Tax-Calculator
+```{r}
+
+tpath <- fs::path(scratch_path, "td21.csv")
+tdtc <- vroom(tpath)
+
+ctctd <- tdtc|> 
+  btools::lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006, agi=c00100, xtot, n24) |> 
+  mutate(type="taxdata")
+
+
+```
+
+
+
+## tmd files
+
+```{r}
+#| label: tmd-new
+
+
+# tmd no weighting penalty
+tname <- "pr148"
+tfile <- paste0("tmd_2021_", tname, ".csv")
+tpath <- fs::path(scratch_path, tfile)
+
+df1 <- vroom(tpath)
+
+tmdnwp <- df1 |>
+  lcnames() |>
+  filter(data_source==1) |>
+  select(recid, s006, agi=c00100, xtot, n24) |>
+  mutate(type="tmd_reweight_nopenalty")
+
+tmdoriginal <- df1 |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006=s006_original, xtot, n24) |> 
+  mutate(type="tmd_noreweight")
+
+# tmd pr144
+tname <- "pr144"
+tfile <- paste0("tmd_2021_", tname, ".csv")
+tpath <- fs::path(scratch_path, tfile)
+
+tmd144 <- vroom(tpath) |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006=s006_original, xtot, n24) |> 
+  mutate(type="tmd_pr144")
+
+tname <- "pr148_pen.05"
+tfile <- paste0("tmd_2021_", tname, ".csv")
+tpath <- fs::path(scratch_path, tfile)
+tmdrwp <- vroom(tpath) |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006=s006_original, xtot, n24) |> 
+  mutate(type="tmd_pr148_pen.05")
+
+
+tmdstack <- bind_rows(tmdnwp, tmdoriginal, tmd144, tmdrwp)
+
+```
+
+
+```{r}
+#| label: combine
+
+stack <- bind_rows(ctcpuf,
+                   ctctd,
+                   tmd126,
+                   tmdbase,
+                   tmdoriginal)
+
+stack <- bind_rows(ctcpuf,
+                   ctctd,
+                   tmdstack)
+
+glimpse(stack)
+count(stack, type)
+
+```
+
+## Analysis
+
+```{r}
+#| label: weighted-totals
+
+torder <- c("taxdata", "puf2015", "tmd_noreweight", "tmd_reweight_nopenalty", "tmd_reweight_penalty.2")
+
+torder <- c("taxdata", "puf2015", "tmd_pr144")
+
+torder <- c("taxdata", "puf2015", "tmd_pr144", "tmd_noreweight", "tmd_reweight_nopenalty", "tmd_pr148_pen.05")
+
+wstack <- stack |> 
+  select(-agi) |>
+  summarise(n=n(),
+            across(c(xtot, n24),
+                   list(nret=\(x) sum(s006),
+                        sum=\(x) sum(x * s006))),
+            .by=type) |> 
+  mutate(type=factor(type, levels=torder)) |> 
+  arrange(type)
+
+wstack |> 
+  gt() |> 
+    tab_header(
+    title = "CTC-related variables, nrecords and weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  cols_align(align="left", columns=type) |> 
+  fmt_number(decimals = 0)
+
+```
+
+
+```{r}
+#| label: xtot-details
+
+wstack <- stack |> 
+  select(-agi) |>
+  mutate(ixtot=as.integer(xtot)) |> 
+  summarise(n=n(),
+            nret=sum(s006),
+            sum=sum(xtot * s006),
+            .by=c(ixtot, type)) |> 
+  mutate(type=factor(type, levels=torder)) |> 
+  arrange(ixtot, type)
+
+wstack |> 
+  select(ixtot, type, value=nret) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  gt() |> 
+    tab_header(
+    title = "# returns with exemptions by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+wstack |> 
+  select(ixtot, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  gt() |> 
+    tab_header(
+    title = "# exemptions by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+wstack |> 
+  filter(type %in% c("taxdata", "puf2015", "tmd_noreweight")) |> 
+  select(ixtot, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  mutate(pdiff_vstaxdata=tmd_noreweight / taxdata - 1,
+         pdiff_vspuf=tmd_noreweight / puf2015 - 1) |> 
+  gt() |> 
+    tab_header(
+    title = "# exemptions by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0) |> 
+  fmt_percent(columns=contains("pdiff"), decimals = 1)
+
+wstack |> 
+  filter(type %in% c("taxdata", "puf2015", "tmd_pr144")) |> 
+  select(ixtot, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  mutate(pdiff_vstaxdata=tmd_pr144 / taxdata - 1,
+         pdiff_vspuf=tmd_pr144 / puf2015 - 1) |> 
+  gt() |> 
+    tab_header(
+    title = "# exemptions by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0) |> 
+  fmt_percent(columns=contains("pdiff"), decimals = 1)
+
+
+```
+
+
+
+
+```{r}
+#| label: n24-details
+
+wstack <- stack |> 
+  select(-agi) |>
+  mutate(in24=as.integer(n24)) |> 
+  summarise(n=n(),
+            nret=sum(s006),
+            sum=sum(n24 * s006),
+            .by=c(in24, type)) |> 
+  mutate(type=factor(type, levels=torder)) |> 
+  arrange(in24, type)
+
+wstack |> 
+  select(in24, type, value=nret) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  gt() |> 
+    tab_header(
+    title = "# returns with n24 by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+wstack |> 
+  select(in24, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  gt() |> 
+    tab_header(
+    title = "# n24 children by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+wstack |> 
+  filter(type %in% c("taxdata", "puf2015", "tmd_noreweight")) |> 
+  select(in24, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  mutate(pdiff_vstaxdata=tmd_noreweight / taxdata - 1,
+         pdiff_vspuf=tmd_noreweight / puf2015 - 1) |> 
+  gt() |> 
+    tab_header(
+    title = "# n24 children by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0) |> 
+  fmt_percent(columns=contains("pdiff"), decimals = 1)
+
+wstack |> 
+  filter(type %in% c("taxdata", "puf2015", "tmd_pr144")) |> 
+  select(in24, type, value=sum) |> 
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  janitor::adorn_totals()|> 
+  mutate(pdiff_vstaxdata=tmd_pr144 / taxdata - 1,
+         pdiff_vspuf=tmd_pr144 / puf2015 - 1) |> 
+  gt() |> 
+    tab_header(
+    title = "# n24 children by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0) |> 
+  fmt_percent(columns=contains("pdiff"), decimals = 1)
+
+```
+
+
+
+
+```{r}
+#| label: n24-details-old
+
+wstack <- stack |> 
+  select(recid, s006, n24, type) |> 
+  mutate(xtot=as.integer(n24)) |> 
+  summarise(value = sum(n24 * s006),
+            .by=c(type, n24))
+wstack
+
+wstack |>  
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  select(n24, taxdata, puf2015, tmd_noreweight, tmd_reweight_nopenalty, tmd_reweight_penalty02) |> 
+  relocate(taxdata, .before=puf2015) |> 
+  arrange(n24) |> 
+  janitor::adorn_totals() |> 
+  gt() |> 
+    tab_header(
+    title = "# CTC-eligible children (n24) by size, weighted sums, various files -- levels",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+wstack |>  
+  pivot_wider(names_from = type, values_fill = 0) |> 
+  select(n24, taxdata, puf2015, tmd_noreweight, tmd_reweight_nopenalty, tmd_reweight_penalty02) |> 
+  relocate(taxdata, .before=puf2015) |> 
+  arrange(n24) |> 
+  mutate(across(-c(n24, puf2015), \(x) x - puf2015)) |> 
+  janitor::adorn_totals() |> 
+  gt() |> 
+    tab_header(
+    title = "# CTC-eligible children (n24) by size, weighted sums, various files -- file value minus puf2015 (puf2015 level shown)",
+    subtitle = "Tax filers only"
+  ) |>
+  fmt_number(decimals = 0)
+
+
+```
+
+
+```{r}
+count(stack, type)
+df <- stack |> 
+  filter(type %in% c("puf2015", "tmd_noreweight")) |>
+  pivot_wider(names_from = type,
+              values_from = -c(recid, type))
+
+df |> 
+  select(-starts_with("agi")) |> 
+  mutate(s006_ratio = s006_tmd_noreweight / s006_puf2015,
+         xtot_ratio = xtot_tmd_noreweight / xtot_puf2015,
+         n24_ratio = n24_tmd_noreweight / n24_puf2015,
+         s006_diff = s006_tmd_noreweight - s006_puf2015,
+         xtot_diff = xtot_tmd_noreweight - xtot_puf2015,
+         n24_diff = n24_tmd_noreweight - n24_puf2015) |> 
+  summary()
+  
+# s006 1.069 all
+# xtot 1 all
+# n24 mostly 1
+
+
+n24check <- df |> 
+  select(-starts_with("agi")) |> 
+  filter(n24_tmd_noreweight != n24_puf2015) |> 
+  mutate(diff=n24_tmd_noreweight - n24_puf2015)
+# 23.7k
+
+count(n24check, diff)
+n24check |> 
+  summarise(diff=sum(diff * s006_tmd_noreweight), .by=c(n24_puf2015)) |> 
+  arrange(n24_puf2015) |> 
+  janitor::adorn_totals() |> 
+  gt() |> 
+  fmt_number(decimals = 0)
+
+stack |> 
+  filter(type %in% c("puf2015", "tmd_noreweight")) |> 
+  mutate(wn24=s006 * n24) |> 
+  select(recid, type, n24, wn24) |> 
+  pivot_wider(names_from = type,
+              values_from = c(n24, wn24)) |> 
+  summarise(across(c(wn24_puf2015, wn24_tmd_noreweight),
+                   \(x) sum(x, na.rm = TRUE)),
+                   .by=n24_puf2015) |> 
+  janitor::adorn_totals() |> 
+  mutate(diff=wn24_tmd_noreweight - wn24_puf2015,
+         pdiff=diff / wn24_puf2015) |> 
+  gt() |> 
+  fmt_number(decimals = 0) |> 
+  fmt_percent(columns=pdiff, decimals = 1)
+
+```
+
+
+# OLD STUFF
+
+```{r}
+#| label: tmd-old
+
+# tmd improvement 0.2
+tname <- "issue126_4017a0"
+tfile <- paste0("tmd_2021_", tname, ".csv")
+tpath <- fs::path(scratch_path, tfile)
+
+tmd126_0 <- vroom(tpath)
+
+tmd126 <- tmd126_0 |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006, agi=c00100, xtot, n24) |> 
+  mutate(type="tmd_reweight_penalty.2")
+
+# tmd no weighting penalty
+# tname <- "my126_ratio_imp0"
+# tfile <- paste0("tmd_2021_", tname, ".csv")
+# tpath <- fs::path(scratch_path, tfile)
+
+df1 <- vroom(tpath)
+
+# tmdbase <- df1 |> 
+#   lcnames() |> 
+#   filter(data_source==1) |> 
+#   select(recid, s006, agi=c00100, xtot, n24) |> 
+#   mutate(type="tmd_reweight_nopenalty")
+
+tmdoriginal <- df1 |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006=s006_original, xtot, n24) |> 
+  mutate(type="tmd_noreweight")
+
+# tmd pr144
+tname <- "pr144"
+tfile <- paste0("tmd_2021_", tname, ".csv")
+tpath <- fs::path(scratch_path, tfile)
+
+tmd144 <- vroom(tpath) |> 
+  lcnames() |> 
+  filter(data_source==1) |> 
+  select(recid, s006=s006_original, xtot, n24) |> 
+  mutate(type="tmd_pr144")
+
+
+```
+
+

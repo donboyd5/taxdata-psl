@@ -8,6 +8,8 @@ editor_options:
 
 ## Setup
 
+
+
 ```{r}
 #| label: includes
 #| output: false
@@ -50,6 +52,24 @@ scratch_path <- fs::path(wsldir, pydir, "scratch")
 
 
 ```
+
+
+```{r}
+#| label: constants-ycuts
+
+ycut19 <- c(-Inf, 1, 
+            seq(5e3, 30e3, 5e3),
+            40e3, 50e3, 75e3, 100e3,
+            200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+ycut22 <- c(-Inf, 
+            seq(5e3, 60e3, 5e3),
+            75e3, 100e3, 200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+```
+
 
 
 ```{r}
@@ -252,58 +272,498 @@ uxtargets <- xtargets |>
   slice_head(n=1) |> 
   ungroup()
   
+count(uxtargets, tmdname)
+head(uxtargets)
 
 ```
 
 
-## Prepare the tmd data
+## Compare multiple tmd files
+
+```{r}
+#| label: get-combined-tmd-data
+
+# tmd file names
+# tnames <- c("masterpr139", 
+#             "issue126_4017a0", 
+#             "my126_ratio", 
+#             "my126_ratio_imp0",
+#             "my126_ratio_imp.01v2",
+#             "my126_ratio_saltfix",
+#             "my126_ratio_imp.1",
+#             "my126_ratio_imp0001")
+# 
+# tnames <- c("issue126_4017a0",
+#             "my126_ratio",
+#             "my126_ratio_imp0", 
+#             "my126_ratio_imp.01v2",
+#             "my126_ratio_imp0001")
+# 
+# tnames <- c("issue126_4017a0", # 0.2
+#             "my126_ratio",     # 0.2
+#             "my126_ratio_imp0", 
+#             "my126_ratio_imp.01v2",
+#             "my126_ratio_imp0001",
+#             "my126_imp1em9",
+#             "my126_ratio_imp1em9",
+#             "my126_imp1em10")
+
+tnames <- c("issue126_4017a0",
+            "pr144",
+            "pr148",
+            "pr148_pen.05")
+
+(tfiles <- paste0("tmd_2021_", tnames, ".csv"))
+tpaths <- fs::path(scratch_path, tfiles)
+# stack1 <- vroom(tpaths, id = "source")
+
+get_file <- function(tname){
+  print(tname)
+  tfile <- paste0("tmd_2021_", tname, ".csv")
+  tpath <- fs::path(scratch_path, tfile)
+  df1 <- vroom(tpath)
+  df2 <- df1 |> 
+    mutate(tmd=tname)
+  df2
+}
+
+stack0 <- purrr::map(tnames, get_file) |> list_rbind()
+ns(stack0)
+count(stack0, tmd)
+
+original <- stack0 |> 
+  filter(tmd=="pr148") |> 
+  mutate(s006=s006_original,
+         tmd="pr148_original")
+
+stack <- bind_rows(stack0, original)
+
+stack |> 
+  summarise(ctc=sum(ctc_total * s006), .by=c(tmd, data_source))
+
+stack |> 
+  summarise(ctc=sum(ctc_total * s006), .by=c(tmd))
+
+
+stack |> 
+  mutate(ratio = s006 / s006_original) |> 
+  filter(data_source==1) |> 
+  summarise(ssd=sum((ratio - 1)^2), .by=tmd) |> 
+  arrange(ssd)
+
+
+
+```
 
 
 ```{r}
-#| label: tmdtc-2021 # tmd that has been run through tax calculator
-#| output: false
+#| label: define-variables-to-analyze
 
-# do one or the other
-tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
-# tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
+idvars <- quos(tmd, data_source, RECID, s006, s006_original)
+idvars_names <- sapply(idvars, as_name)
 
-ns(tmdtc2021)
-glimpse(tmdtc2021)
-# qbi = np.maximum(0, df.e00900 + df.e26270 + df.e02100 + df.e27200)
-
-df <- tmdtc2021 |> 
-  select(RECID, data_source, s006, s006_original, c00100, e00900, e26270, e02100, e27200, PT_binc_w2_wages, qbided) |> 
-  mutate(qbi=pmax(0, e00900 + e26270 + e02100 + e27200),
-         ratio=s006 / s006_original)
-
-summary(df)
-
-df |> 
-  filter(data_source==1) |> 
-  select(-c00100, -ratio, -data_source) |>  
-  pivot_longer(-c(RECID, s006, s006_original)) |> 
-  summarise(s006_original=sum(value * s006_original),
-            s006=sum(value * s006),
-            .by=name) |> 
-  mutate(diff=s006 - s006_original, pdiff=diff / s006_original) |>
-  left_join(utcvars |> select(name=vname, desc),
-            by = join_by(name)) |> 
-  gt() |> 
-  fmt_number(columns=s006_original:diff,
-             scale=1e-9,
-             decimals=2) |> 
-  fmt_percent(columns=pdiff,
-              decimals = 1)
-
-uxtargets
-count(uxtargets, tmdname, irsvname)
-
-uxtargets |> 
-  filter(tmdname %in% c("e00900pos", "e00900neg"), year==2021, incsort==1) |> 
-  summarise(ptarget=sum(ptarget))
+vars <- quos(c00100, c01000, c02500, c04800,
+             e00200, e00300, e00400, e00600, e00650, e00900, 
+             e01500, e02300, e02400,
+             e17500, e18400, e18500)
+vars_names <- sapply(vars, as_name)
 
 ```
 
+
+```{r}
+#| label: select-transform-long-stack
+
+stack1 <- stack |> 
+  select(!!!idvars, !!!vars) |> 
+  mutate(c01000neg = (c01000 < 0)*c01000,
+         c01000pos = (c01000 > 0)*c01000,
+         e00900neg= (e00900 < 0)*e00900,
+         e00900pos= (e00900 > 0)*e00900)
+
+# TODO: nnz vars
+#   mutate(across(any_of(vars),
+#          ~(. != 0) * 1,
+#          .names = "{.col}_nnz"))
+
+long <- stack1 |> 
+  mutate(ycut19=cut(c00100, ycut19, right=FALSE),
+         incsort19=as.integer(ycut19) + 1L,
+         ycut22=cut(c00100, ycut22, right=FALSE),
+         incsort22=as.integer(ycut22) + 1L,) |> 
+  pivot_longer(cols=-c(all_of(idvars_names), ycut19, incsort19, ycut22, incsort22)) |> 
+  mutate(wvalue=value * s006) |> 
+  relocate(s006, s006_original, .before = value)
+
+ht(long)
+
+
+```
+
+
+```{r}
+#| label: collapse-long
+
+
+# collapsed by income range
+collapse19 <- long |> 
+  summarise(wvalue=sum(wvalue),
+            .by=c(tmd, data_source, name, incsort19, ycut19)) |> 
+  rename(incsort=incsort19, ycut=ycut19) |> 
+  mutate(nranges=19)
+
+collapse22 <- long |> 
+  summarise(wvalue=sum(wvalue),
+            .by=c(tmd, data_source, name, incsort22, ycut22)) |> 
+  rename(incsort=incsort22, ycut=ycut22) |> 
+  mutate(nranges=22)
+
+# get totals by all but income range -- either collapse19 or collapse22 would work
+collapsetots <- collapse19 |> 
+  summarise(wvalue=sum(wvalue),
+            .by=c(tmd, data_source, name)) |> 
+  mutate(incsort=1)
+
+# create a df that has all targets by 19 ranges and by 22 ranges
+collapse <- bind_rows(
+  collapse19,
+  collapsetots |> mutate(nranges=19),
+  collapse22,
+  collapsetots |> mutate(nranges=22)) |> 
+  mutate(ycut=as.character(ycut), # factor no longer meaningful as 2 different sets of cuts
+         ycut=ifelse(is.na(ycut), "Total", ycut))
+ht(collapse)
+count(collapse, incsort, ycut)
+
+# mutate(ycut19 = fct_na_value_to_level(ycut19, level = "Total"))
+
+# we have different counts because data_sort==0 does not have records with high agi
+count(collapse, data_source, incsort, ycut) 
+count(collapse, tmd)
+
+```
+
+
+```{r}
+#| label: add-targets
+
+(y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==19) |> select(tmdname) |> distinct() |> pull(tmdname))
+(y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==22) |> select(tmdname) |> distinct() |> pull(tmdname))
+
+count(uxtargets, tmdname)
+head(collapse)
+head(uxtargets)
+
+comp <- collapse |> 
+  filter(data_source==1) |> 
+  left_join(uxtargets |> 
+              filter(datatype=="filers") |> 
+              select(tmdname, irsvname, vtype, incsort, incrange, ptarget, nranges),
+            join_by(incsort, nranges, name==tmdname),
+            relationship = "many-to-many") |> 
+  mutate(diff=wvalue - ptarget,
+         pdiff=diff / ptarget,
+         absdiff=abs(diff),
+         abspdiff=abs(pdiff),
+         incrange=ifelse(is.na(incrange), ycut, incrange)) |> 
+  select(nranges, tmd, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
+
+```
+
+
+## Examine datatable
+
+```{css}
+.dataTable {
+  font-size: 12px;
+}
+```
+
+
+```{r}
+#| label: examine
+#| column: page
+
+dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
+
+tab <- comp |> 
+  mutate(across(any_of(dollar_columns),
+                \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
+  # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
+  mutate(incsort=factor(incsort),
+         vtype=factor(vtype),
+         tmd=factor(tmd),
+         tmdname=factor(tmdname),
+         nranges=factor(nranges)) |> 
+  # select(vtype, tmdname, incsort, incrange, ptarget:abspdiff) |> 
+  arrange(vtype, tmdname, incsort) |> 
+  DT::datatable(rownames = FALSE,
+            options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 23), # autoWidth = TRUE, 
+            caption = htmltools::tags$caption(
+              style = 'caption-side: top; text-align: center;
+              font-size: 25px; font-weight: bold;',
+              '2021 filers (data_source==1); amounts are in $ billions; nreturns are numbers'
+              ),
+            width = "100%",
+            filter="top") |>
+    formatCurrency(columns = dollar_columns, currency="", digits=2) |>
+    formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
+
+tab
+
+```
+
+
+## Weights
+
+```{r}
+#| label: comp-tmd-weights
+
+df <- tmdcomp |> 
+  filter(data_source==1) |> 
+  select(tmd, RECID, s006, s006_original)
+
+probs <- c(0, .05, .1, .25, .5, .75, .9, .95, 1)  
+
+# penalty is .20
+df |> 
+  filter(data)
+  mutate(ratio=s006 / s006_original) |> 
+  summarise(x=quantile(ratio), .by = )
+
+
+df |> 
+  mutate(ratio=s006 / s006_original) |> 
+  ggplot(aes(ratio)) +
+  geom_histogram(bins = 60, fill = "blue", color = "black") +
+  scale_y_continuous(labels = label_comma()) +
+  scale_x_continuous(breaks = seq(0, 10, 1)) +
+  facet_wrap(~tmd, ncol=1)
+
+brks <- c(-1e3, -5e2, -1e2, 0, seq(100, 500, 100), 1e3, 5e3, 10e3)
+df |> 
+  mutate(change=s006 - s006_original) |> 
+  ggplot(aes(change)) +
+  geom_histogram(bins = 80, fill = "blue", color = "black") +
+  scale_y_continuous(labels = label_comma()) +
+  scale_x_continuous(breaks = brks) +
+  facet_wrap(~tmd, ncol=1)
+
+df |> 
+  filter(str_detect(tmd, "issue126")) |> 
+  mutate(ratio=s006 / s006_original) |> 
+  ggplot(aes(ratio)) +
+  geom_histogram(bins = 60, fill = "blue", color = "black") +
+  scale_y_continuous(labels = label_comma()) +
+  scale_x_continuous(breaks = seq(0, 10, 1))
+
+
+df |> 
+  filter(tmd=="masterpr139") |> 
+  mutate(tmd="original", weight=s006_original) |> 
+  bind_rows(df |> 
+              rename(weight=s006)) |> 
+  ggplot(aes(weight)) +
+  geom_histogram(bins = 60, fill = "blue", color = "black") +
+  scale_y_continuous(labels = label_comma()) +
+  scale_x_continuous(breaks = seq(0, 20e3, 100), limits = c(0, 2000)) +
+  facet_wrap(~tmd, ncol=1)
+
+df |> 
+  filter(tmd=="masterpr139") |> 
+  mutate(tmd="original", weight=s006_original) |> 
+  bind_rows(df |> 
+              rename(weight=s006)) |> 
+  ggplot(aes(weight)) +
+  geom_histogram(bins = 60, fill = "blue", color = "black") +
+  scale_y_continuous(labels = label_comma()) +
+  scale_x_log10(breaks=c(0, 1, 10, 100, 1000, 10e3, 100e3), labels = label_comma()) +
+  facet_wrap(~tmd, ncol=1)
+
+
+
+df |> 
+  mutate(ratio=s006 / s006_original) |> 
+  summarise(x=quantile(ratio, probs=probs) |> list(), .by=tmd) |> 
+  unnest_wider(col=x) |> 
+  pivot_longer(-tmd, names_to = "quantile") |> 
+  pivot_wider(names_from = tmd) |> 
+  gt() |> 
+  tab_header(title = "Quantiles of: s006 / s006_original") |>
+  fmt_number(columns = -quantile,
+             decimals = 3)
+  
+df |> 
+  mutate(diff=s006 - s006_original) |> 
+  summarise(x=quantile(diff, probs=probs) |> list(), .by=tmd) |> 
+  unnest_wider(col=x) |> 
+  pivot_longer(-tmd, names_to = "quantile") |> 
+  pivot_wider(names_from = tmd) |> 
+  gt() |> 
+  tab_header(title = "Quantiles of: s006 - s006_original") |>
+  fmt_number(columns = -quantile,
+             decimals = 1)
+  
+(wcuts <- c(0, 10, 100, seq(100, 500, 100), seq(500, 2000, 500), seq(2e3, 5e3, 1e3), 10e3) |> unique())
+
+df |> 
+  mutate(change=s006 - s006_original,
+         ratio=change / s006_original,
+         wsize=cut(s006_original, wcuts)) |> 
+  summarise(n=n(),
+            change_min=min(change),
+            change_p25=p25(change),
+            change_p50=p50(change),
+            change_p75=p75(change),
+            change_max=max(change),
+            ratio_p50=p50(ratio),
+            .by=c(wsize, tmd)) |> 
+  arrange(wsize, desc(tmd)) |> 
+  select(wsize, tmd, n, value=ratio_p50) |> 
+  pivot_wider(names_from = tmd) |> 
+  gt() |> 
+  tab_header(title = "Change in weight by size of original weight") |>
+  fmt_number(columns = -c(wsize),
+             decimals = 2)
+
+df |> 
+  mutate(change=s006 - s006_original,
+         ratio=s006 / s006_original,
+         wsize=cut(s006_original, wcuts)) |> 
+  summarise(n=n(),
+            change_min=min(change),
+            change_p25=p25(change),
+            change_p50=p50(change),
+            change_p75=p75(change),
+            change_max=max(change),
+            ratio_p25=p25(ratio),
+            ratio_p50=p50(ratio),
+            ratio_p75=p75(ratio),
+            .by=c(wsize, tmd)) |> 
+  arrange(wsize, desc(tmd)) |> 
+  select(wsize, tmd, n, value=ratio_p25) |> 
+  pivot_wider(names_from = tmd) |> 
+  gt() |> 
+  tab_header(title = "Weight ratio by size of original weight") |>
+  fmt_number(columns = n,
+             decimals = 0) |> 
+  fmt_number(columns = -c(wsize, n),
+             decimals = 3)
+
+
+
+
+df |> 
+  mutate(change=s006 - s006_original,
+         pctchange=change / s006_original,
+         wsize=cut(s006_original, wcuts)) |> 
+  summarise(n=n(),
+            change_min=min(change),
+            change_p25=p25(change),
+            change_p50=p50(change),
+            change_p75=p75(change),
+            change_max=max(change),
+            .by=c(wsize, tmd)) |> 
+  arrange(wsize, desc(tmd)) |> 
+  gt() |> 
+  tab_header(title = "Change in weight by size of original weight") |>
+  fmt_number(columns = -c(wsize, tmd),
+             decimals = 1)
+
+df |> 
+  mutate(ratio=s006 / s006_original,
+         wsize=cut(s006_original, wcuts)) |> 
+  summarise(n=n(),
+            ratio_min=min(ratio),
+            ratio_p25=p25(ratio),
+            ratio_p50=p50(ratio),
+            ratio_p75=p75(ratio),
+            ratio_max=max(ratio),
+            .by=c(wsize, tmd)) |> 
+  arrange(wsize, desc(tmd)) |> 
+  gt() |> 
+  tab_header(
+    title = "Ratio of new weight to original weight by size of original weight"
+  ) |>
+  fmt_number(columns = -c(wsize, tmd),
+             decimals = 2)
+
+
+```
+
+
+## Selected aggregates
+
+```{r}
+
+ns(tmdcomp)
+
+uxtargets
+
+# targets_collapse <- 
+
+
+vars <- quos(c00100, e00200, e00900, e18400, e18500)
+
+df <- tmdcomp |> 
+  select(tmd, data_source, RECID, s006, s006_original, !!!vars) |> 
+  mutate(e00900pos=(e00900 > 0)*e00900,
+         e00900neg=(e00900 < 0)*e00900)
+
+df2 <- df |> 
+  mutate(nret=1) |> 
+  pivot_longer(-c(tmd, data_source, RECID, s006, s006_original),
+               names_to = "vname") |> 
+  pivot_longer(starts_with("s006"),
+               names_to = "weightvar",
+               values_to = "weight")
+
+df3 <- df2 |> 
+  filter(data_source==1) |> 
+  mutate(wtdvalue=value * weight) |> 
+  summarise(wtdvalue=sum(wtdvalue),
+            .by=c(weightvar, vname, tmd))
+
+df4 <- df3 |> 
+  left_join(uxtargets |> 
+              filter(year==2021, incsort==1, !is.na(ptarget)) |> 
+              select(tmdname, irsvname, ptarget),
+            by=join_by(vname == tmdname)) |> 
+  relocate(irsvname, .after = vname) |> 
+  relocate(ptarget, .after = tmd) |> 
+  mutate(diff=wtdvalue - ptarget,
+         pdiff=diff / ptarget)
+
+
+df4 |> 
+  filter(weightvar=="s006", !is.na(ptarget)) |> 
+  select(vname, irsvname, tmd, ptarget, diff, pdiff) |> 
+  pivot_wider(names_from =tmd, values_from = c(diff, pdiff)) |> 
+  gt() |> 
+  fmt_number(columns = -c(vname, irsvname, contains("pdiff")),
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns = contains("pdiff"),
+             scale=1,
+             decimals=1)  
+
+
+# closeAllConnections()
+
+# df |> 
+#   filter(data_source==1) |>
+#   summarise(across(
+#     -c(data_source, RECID, s006, s006_original),
+#     \(x) sum(x * s006)),
+#     .by=tmd)
+
+
+```
+
+
+
+
+# Older
 
 ```{r}
 #| label: ctc-exploration
@@ -466,12 +926,6 @@ head(comp)
 
 
 ### Examine results
-
-```{css}
-.dataTable {
-  font-size: 12px;
-}
-```
 
 ```{r}
 #| label: examine
@@ -1087,3 +1541,59 @@ ratios |>
 
 
 
+
+
+## Prepare the tmd data
+
+
+```{r}
+#| label: tmdtc-2021 # tmd that has been run through tax calculator
+#| output: false
+
+# do one of the following
+# tpath <- fs::path(stor_path, "tmd_2021.csv")
+# tpath <- fs::path(stor_path, "tmd_2021.csv")
+# tpath <- fs::path(scratch_path, "tmdout-21-#-#-#.csv")
+# tpath <- fs::path(scratch_path, "master_pr134", "tmd_2021.csv")
+# tpath <- fs::path(scratch_path, "issue126", "tmd_2021.csv")
+
+tmdtc2021 <- vroom(tpath) # if run through tc by Nikhil
+# tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
+# tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
+
+ns(tmdtc2021)
+glimpse(tmdtc2021)
+# qbi = np.maximum(0, df.e00900 + df.e26270 + df.e02100 + df.e27200)
+
+df <- tmdtc2021 |> 
+  select(RECID, data_source, s006, s006_original, c00100, e00900, e26270, e02100, e27200, PT_binc_w2_wages, qbided) |> 
+  mutate(qbi=pmax(0, e00900 + e26270 + e02100 + e27200),
+         ratio=s006 / s006_original)
+
+summary(df)
+
+df |> 
+  filter(data_source==1) |> 
+  select(-c00100, -ratio, -data_source) |>  
+  pivot_longer(-c(RECID, s006, s006_original)) |> 
+  summarise(s006_original=sum(value * s006_original),
+            s006=sum(value * s006),
+            .by=name) |> 
+  mutate(diff=s006 - s006_original, pdiff=diff / s006_original) |>
+  left_join(utcvars |> select(name=vname, desc),
+            by = join_by(name)) |> 
+  gt() |> 
+  fmt_number(columns=s006_original:diff,
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns=pdiff,
+              decimals = 1)
+
+uxtargets
+count(uxtargets, tmdname, irsvname)
+
+uxtargets |> 
+  filter(tmdname %in% c("e00900pos", "e00900neg"), year==2021, incsort==1) |> 
+  summarise(ptarget=sum(ptarget))
+
+```
