@@ -17,6 +17,7 @@ editor_options:
 source(here::here("r", "libraries.r"))
 # library(jsonlite)
 # library(tidyjson)
+library(naniar)
 
 ```
 
@@ -282,38 +283,25 @@ head(uxtargets)
 ## taxdata 2011 puf advanced to 2021 and put through Tax-Calculator
 
 ```{r}
-#| label: get-taxdata
-
-tpath <- fs::path(scratch_path, "td21.csv")
-tdtc <- vroom(tpath)
-
-ctctd <- tdtc|> 
-  btools::lcnames() |> 
-  filter(data_source==1) |> 
-  select(recid, s006, agi=c00100, xtot, n24) |> 
-  mutate(type="taxdata")
-
-```
-
-
-```{r}
-#| label: get-combined-tmd-data
+#| label: get-tcoutput-data
 
 # td21 is Martin's taxdata 2011 puf advanced to 2021 and put through Tax-Calculator - I should update
 
 tnames <- c("pr148",
             "pr148_pen.05")
 
+# for taxdata, use fnbase tdtc2021 (me) or td21 (Martin)
+
 fndf <- read_csv("
 fnbase,type
-tdtc2021, taxdata
+td21, taxdata
 pr148,
 pr148_pen.05,
+pr148_cggdist,
 ") |> 
-  mutate(fname=ifelse(
-    fnbase=="tdtc2021",
-    "tdtc2021.csv",
-    paste0("tmd_2021_", fnbase, ".csv")),
+  mutate(fname=case_when(
+    type=="taxdata" ~ paste0(fnbase, ".csv"),
+    .default=paste0("tmd_2021_", fnbase, ".csv")),
     type=ifelse(is.na(type), fnbase, type))
 fndf
 
@@ -340,6 +328,7 @@ original <- stack0 |>
 
 stack <- bind_rows(stack0, original)
 ns(stack)
+count(stack, type)
 
 stack |> 
   summarise(ctc=sum(ctc_total * s006), .by=c(type, data_source))
@@ -360,7 +349,7 @@ stack |>
 ```{r}
 #| label: define-variables-to-analyze
 
-idvars <- quos(tmd, data_source, RECID, s006, s006_original)
+idvars <- quos(type, data_source, RECID, s006, s006_original)
 idvars_names <- sapply(idvars, as_name)
 
 vars <- quos(c00100, c01000, c02500, c04800,
@@ -409,20 +398,20 @@ ht(long)
 # collapsed by income range
 collapse19 <- long |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name, incsort19, ycut19)) |> 
+            .by=c(type, data_source, name, incsort19, ycut19)) |> 
   rename(incsort=incsort19, ycut=ycut19) |> 
   mutate(nranges=19)
 
 collapse22 <- long |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name, incsort22, ycut22)) |> 
+            .by=c(type, data_source, name, incsort22, ycut22)) |> 
   rename(incsort=incsort22, ycut=ycut22) |> 
   mutate(nranges=22)
 
 # get totals by all but income range -- either collapse19 or collapse22 would work
 collapsetots <- collapse19 |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name)) |> 
+            .by=c(type, data_source, name)) |> 
   mutate(incsort=1)
 
 # create a df that has all targets by 19 ranges and by 22 ranges
@@ -440,7 +429,9 @@ count(collapse, incsort, ycut)
 
 # we have different counts because data_sort==0 does not have records with high agi
 count(collapse, data_source, incsort, ycut) 
-count(collapse, tmd)
+count(collapse, type)
+summary(collapse)
+ns(collapse)
 
 ```
 
@@ -451,9 +442,13 @@ count(collapse, tmd)
 (y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==19) |> select(tmdname) |> distinct() |> pull(tmdname))
 (y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==22) |> select(tmdname) |> distinct() |> pull(tmdname))
 
+vis_miss(uxtargets)
+vis_miss(uxtargets |> select(-puf_name))
 count(uxtargets, tmdname)
+summary(uxtargets)
 head(collapse)
 head(uxtargets)
+count(uxtargets, vtype)
 
 comp <- collapse |> 
   filter(data_source==1) |> 
@@ -462,12 +457,15 @@ comp <- collapse |>
               select(tmdname, irsvname, vtype, incsort, incrange, ptarget, nranges),
             join_by(incsort, nranges, name==tmdname),
             relationship = "many-to-many") |> 
+  filter(!is.na(vtype)) |> # DJB temporary fix -- maybe a different kind of merge??
   mutate(diff=wvalue - ptarget,
          pdiff=diff / ptarget,
          absdiff=abs(diff),
          abspdiff=abs(pdiff),
          incrange=ifelse(is.na(incrange), ycut, incrange)) |> 
-  select(nranges, tmd, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
+  select(nranges, type, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
+
+count(comp, vtype)
 
 ```
 
@@ -488,12 +486,13 @@ comp <- collapse |>
 dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 
 tab <- comp |> 
+  # filter(!is.na(wvalue)) |> 
   mutate(across(any_of(dollar_columns),
                 \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
   # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
   mutate(incsort=factor(incsort),
          vtype=factor(vtype),
-         type=factor(tmd),
+         type=factor(type),
          tmdname=factor(tmdname),
          nranges=factor(nranges)) |> 
   # select(vtype, tmdname, incsort, incrange, ptarget:abspdiff) |> 
