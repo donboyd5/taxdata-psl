@@ -15,20 +15,8 @@ book:
   date-format: long
   chapters:
     - index.qmd
+    - analyze_weights.qmd
     - tmd.qmd
-    # - prepare_databases.qmd
-    # - examine_weights.qmd
-    # - zero_weighted_sums.qmd
-    # - aggregates.qmd
-    # - compare_to_tctd.qmd
-    # - irs_definitions.qmd
-    # - compare_to_irs.qmd
-    # - analysis.qmd
-    # - part: "Revenue options"
-    #   chapters:
-    #   - options/summary.qmd
-    #   - options/legislation_links.qmd
-    #   - options/budget_bills.qmd
     
 # bibliography: references.bib
 

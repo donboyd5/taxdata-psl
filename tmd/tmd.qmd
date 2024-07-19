@@ -8,8 +8,6 @@ editor_options:
 
 ## Setup
 
-
-
 ```{r}
 #| label: includes
 #| output: false
@@ -285,22 +283,36 @@ head(uxtargets)
 ```{r}
 #| label: get-tcoutput-data
 
-# td21 is Martin's taxdata 2011 puf advanced to 2021 and put through Tax-Calculator - I should update
-
-tnames <- c("pr148",
-            "pr148_pen.05")
+# td21 is Martin's taxdata 2011 puf advanced to 2021 and put through Tax-Calculator in April
+# td21_2024-07-18 is updated
 
 # for taxdata, use fnbase tdtc2021 (me) or td21 (Martin)
 
+# td21, taxdata
+
+# td21_2024-07-18, taxdata_mh
+# tdtc2021, taxdata_db
+
+# fndf <- read_csv("
+# fnbase,type                 
+# td21_2024-07-18, taxdata
+# pr148,
+# pr148_pen.05,
+# pr148_cggdist,
+# pr148_bnpcggtpitssdist,
+# ")
+
 fndf <- read_csv("
-fnbase,type
-td21, taxdata
-pr148,
-pr148_pen.05,
-pr148_cggdist,
-") |> 
+fnbase,type                 
+td21_2024-07-18, taxdata
+pr150,
+pr148_bnpcggtpitssdist,
+pr150_bnpcggodpsitiitpitss,
+")
+
+fndf <- fndf |> 
   mutate(fname=case_when(
-    type=="taxdata" ~ paste0(fnbase, ".csv"),
+    str_detect(type, "taxdata") ~ paste0(fnbase, ".csv"),
     .default=paste0("tmd_2021_", fnbase, ".csv")),
     type=ifelse(is.na(type), fnbase, type))
 fndf
@@ -322,9 +334,9 @@ ns(stack0)
 count(stack0, type)
 
 original <- stack0 |> 
-  filter(type=="pr148") |> 
+  filter(type=="pr150") |> 
   mutate(s006=s006_original,
-         type="pr148_original")
+         type="pr150_original")
 
 stack <- bind_rows(stack0, original)
 ns(stack)
@@ -369,12 +381,16 @@ stack1 <- stack |>
   mutate(c01000neg = (c01000 < 0)*c01000,
          c01000pos = (c01000 > 0)*c01000,
          e00900neg= (e00900 < 0)*e00900,
-         e00900pos= (e00900 > 0)*e00900)
+         e00900pos= (e00900 > 0)*e00900) |> 
+  mutate(across(-any_of(idvars_names),
+                ~(. != 0) * 1,
+                .names = "{.col}_nnz"))
+  
 
 # TODO: nnz vars
-#   mutate(across(any_of(vars),
-#          ~(. != 0) * 1,
-#          .names = "{.col}_nnz"))
+  # mutate(across(any_of(vars),
+  #        ~(. != 0) * 1,
+  #        .names = "{.col}_nnz"))
 
 long <- stack1 |> 
   mutate(ycut19=cut(c00100, ycut19, right=FALSE),
@@ -483,19 +499,26 @@ count(comp, vtype)
 #| label: examine
 #| column: page
 
-dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
+# dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
+number_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 
 tab <- comp |> 
   # filter(!is.na(wvalue)) |> 
-  mutate(across(any_of(dollar_columns),
-                \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
+  # mutate(across(any_of(dollar_columns),
+  #               \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
   # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
+  # create factors so that they will appear in dropdown boxes
   mutate(incsort=factor(incsort),
          vtype=factor(vtype),
          type=factor(type),
          tmdname=factor(tmdname),
+         irsvname=factor(irsvname),
          nranges=factor(nranges)) |> 
   # select(vtype, tmdname, incsort, incrange, ptarget:abspdiff) |> 
+  mutate(across(any_of(number_columns),
+                \(x) case_when(vtype=="amount" ~ label_comma(accuracy=.01, scale=1e-9)(x),
+                               vtype=="nreturns" ~ label_comma(accuracy=1, scale=1)(x),
+                               .default = "ERROR"))) |> 
   arrange(vtype, tmdname, incsort) |> 
   DT::datatable(rownames = FALSE,
             options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 23), # autoWidth = TRUE, 
@@ -506,7 +529,8 @@ tab <- comp |>
               ),
             width = "100%",
             filter="top") |>
-    formatCurrency(columns = dollar_columns, currency="", digits=2) |>
+    formatStyle(columns = number_columns, `text-align` = 'right') |> 
+    # formatCurrency(columns = dollar_columns, currency="", digits=2) |>
     formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
 
 tab
