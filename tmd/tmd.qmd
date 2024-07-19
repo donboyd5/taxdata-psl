@@ -8,8 +8,6 @@ editor_options:
 
 ## Setup
 
-
-
 ```{r}
 #| label: includes
 #| output: false
@@ -17,6 +15,7 @@ editor_options:
 source(here::here("r", "libraries.r"))
 # library(jsonlite)
 # library(tidyjson)
+library(naniar)
 
 ```
 
@@ -49,7 +48,6 @@ pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
 tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
 stor_path <- fs::path(wsldir, pydir, tmddir)
 scratch_path <- fs::path(wsldir, pydir, "scratch")
-
 
 ```
 
@@ -280,78 +278,82 @@ head(uxtargets)
 
 ## Compare multiple tmd files
 
+## taxdata 2011 puf advanced to 2021 and put through Tax-Calculator
+
 ```{r}
-#| label: get-combined-tmd-data
+#| label: get-tcoutput-data
 
-# tmd file names
-# tnames <- c("masterpr139", 
-#             "issue126_4017a0", 
-#             "my126_ratio", 
-#             "my126_ratio_imp0",
-#             "my126_ratio_imp.01v2",
-#             "my126_ratio_saltfix",
-#             "my126_ratio_imp.1",
-#             "my126_ratio_imp0001")
-# 
-# tnames <- c("issue126_4017a0",
-#             "my126_ratio",
-#             "my126_ratio_imp0", 
-#             "my126_ratio_imp.01v2",
-#             "my126_ratio_imp0001")
-# 
-# tnames <- c("issue126_4017a0", # 0.2
-#             "my126_ratio",     # 0.2
-#             "my126_ratio_imp0", 
-#             "my126_ratio_imp.01v2",
-#             "my126_ratio_imp0001",
-#             "my126_imp1em9",
-#             "my126_ratio_imp1em9",
-#             "my126_imp1em10")
+# td21 is Martin's taxdata 2011 puf advanced to 2021 and put through Tax-Calculator in April
+# td21_2024-07-18 is updated
 
-tnames <- c("issue126_4017a0",
-            "pr144",
-            "pr148",
-            "pr148_pen.05")
+# for taxdata, use fnbase tdtc2021 (me) or td21 (Martin)
 
-(tfiles <- paste0("tmd_2021_", tnames, ".csv"))
-tpaths <- fs::path(scratch_path, tfiles)
-# stack1 <- vroom(tpaths, id = "source")
+# td21, taxdata
 
-get_file <- function(tname){
-  print(tname)
-  tfile <- paste0("tmd_2021_", tname, ".csv")
-  tpath <- fs::path(scratch_path, tfile)
-  df1 <- vroom(tpath)
+# td21_2024-07-18, taxdata_mh
+# tdtc2021, taxdata_db
+
+# fndf <- read_csv("
+# fnbase,type                 
+# td21_2024-07-18, taxdata
+# pr148,
+# pr148_pen.05,
+# pr148_cggdist,
+# pr148_bnpcggtpitssdist,
+# ")
+
+fndf <- read_csv("
+fnbase,type                 
+td21_2024-07-18, taxdata
+pr150,
+pr148_bnpcggtpitssdist,
+pr150_bnpcggodpsitiitpitss,
+")
+
+fndf <- fndf |> 
+  mutate(fname=case_when(
+    str_detect(type, "taxdata") ~ paste0(fnbase, ".csv"),
+    .default=paste0("tmd_2021_", fnbase, ".csv")),
+    type=ifelse(is.na(type), fnbase, type))
+fndf
+
+f <- function(type, fname){
+  print(fname)
+  fpath <- fs::path(scratch_path, fname)
+  df1 <- vroom(fpath)
   df2 <- df1 |> 
-    mutate(tmd=tname)
+    mutate(type=type)
   df2
 }
 
-stack0 <- purrr::map(tnames, get_file) |> list_rbind()
+stack0 <- fndf |> 
+  rowwise() |> 
+  reframe(f(type, fname))
+
 ns(stack0)
-count(stack0, tmd)
+count(stack0, type)
 
 original <- stack0 |> 
-  filter(tmd=="pr148") |> 
+  filter(type=="pr150") |> 
   mutate(s006=s006_original,
-         tmd="pr148_original")
+         type="pr150_original")
 
 stack <- bind_rows(stack0, original)
+ns(stack)
+count(stack, type)
 
 stack |> 
-  summarise(ctc=sum(ctc_total * s006), .by=c(tmd, data_source))
+  summarise(ctc=sum(ctc_total * s006), .by=c(type, data_source))
 
 stack |> 
-  summarise(ctc=sum(ctc_total * s006), .by=c(tmd))
-
+  summarise(n24=sum(n24 * s006), .by=c(type, data_source)) |> 
+  pivot_wider(names_from = type, values_from = n24)
 
 stack |> 
   mutate(ratio = s006 / s006_original) |> 
   filter(data_source==1) |> 
-  summarise(ssd=sum((ratio - 1)^2), .by=tmd) |> 
+  summarise(ssd=sum((ratio - 1)^2), .by=type) |> 
   arrange(ssd)
-
-
 
 ```
 
@@ -359,7 +361,7 @@ stack |>
 ```{r}
 #| label: define-variables-to-analyze
 
-idvars <- quos(tmd, data_source, RECID, s006, s006_original)
+idvars <- quos(type, data_source, RECID, s006, s006_original)
 idvars_names <- sapply(idvars, as_name)
 
 vars <- quos(c00100, c01000, c02500, c04800,
@@ -379,12 +381,16 @@ stack1 <- stack |>
   mutate(c01000neg = (c01000 < 0)*c01000,
          c01000pos = (c01000 > 0)*c01000,
          e00900neg= (e00900 < 0)*e00900,
-         e00900pos= (e00900 > 0)*e00900)
+         e00900pos= (e00900 > 0)*e00900) |> 
+  mutate(across(-any_of(idvars_names),
+                ~(. != 0) * 1,
+                .names = "{.col}_nnz"))
+  
 
 # TODO: nnz vars
-#   mutate(across(any_of(vars),
-#          ~(. != 0) * 1,
-#          .names = "{.col}_nnz"))
+  # mutate(across(any_of(vars),
+  #        ~(. != 0) * 1,
+  #        .names = "{.col}_nnz"))
 
 long <- stack1 |> 
   mutate(ycut19=cut(c00100, ycut19, right=FALSE),
@@ -408,20 +414,20 @@ ht(long)
 # collapsed by income range
 collapse19 <- long |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name, incsort19, ycut19)) |> 
+            .by=c(type, data_source, name, incsort19, ycut19)) |> 
   rename(incsort=incsort19, ycut=ycut19) |> 
   mutate(nranges=19)
 
 collapse22 <- long |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name, incsort22, ycut22)) |> 
+            .by=c(type, data_source, name, incsort22, ycut22)) |> 
   rename(incsort=incsort22, ycut=ycut22) |> 
   mutate(nranges=22)
 
 # get totals by all but income range -- either collapse19 or collapse22 would work
 collapsetots <- collapse19 |> 
   summarise(wvalue=sum(wvalue),
-            .by=c(tmd, data_source, name)) |> 
+            .by=c(type, data_source, name)) |> 
   mutate(incsort=1)
 
 # create a df that has all targets by 19 ranges and by 22 ranges
@@ -439,7 +445,9 @@ count(collapse, incsort, ycut)
 
 # we have different counts because data_sort==0 does not have records with high agi
 count(collapse, data_source, incsort, ycut) 
-count(collapse, tmd)
+count(collapse, type)
+summary(collapse)
+ns(collapse)
 
 ```
 
@@ -450,9 +458,13 @@ count(collapse, tmd)
 (y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==19) |> select(tmdname) |> distinct() |> pull(tmdname))
 (y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==22) |> select(tmdname) |> distinct() |> pull(tmdname))
 
+vis_miss(uxtargets)
+vis_miss(uxtargets |> select(-puf_name))
 count(uxtargets, tmdname)
+summary(uxtargets)
 head(collapse)
 head(uxtargets)
+count(uxtargets, vtype)
 
 comp <- collapse |> 
   filter(data_source==1) |> 
@@ -461,12 +473,15 @@ comp <- collapse |>
               select(tmdname, irsvname, vtype, incsort, incrange, ptarget, nranges),
             join_by(incsort, nranges, name==tmdname),
             relationship = "many-to-many") |> 
+  filter(!is.na(vtype)) |> # DJB temporary fix -- maybe a different kind of merge??
   mutate(diff=wvalue - ptarget,
          pdiff=diff / ptarget,
          absdiff=abs(diff),
          abspdiff=abs(pdiff),
          incrange=ifelse(is.na(incrange), ycut, incrange)) |> 
-  select(nranges, tmd, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
+  select(nranges, type, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
+
+count(comp, vtype)
 
 ```
 
@@ -484,18 +499,26 @@ comp <- collapse |>
 #| label: examine
 #| column: page
 
-dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
+# dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
+number_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 
 tab <- comp |> 
-  mutate(across(any_of(dollar_columns),
-                \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
+  # filter(!is.na(wvalue)) |> 
+  # mutate(across(any_of(dollar_columns),
+  #               \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
   # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
+  # create factors so that they will appear in dropdown boxes
   mutate(incsort=factor(incsort),
          vtype=factor(vtype),
-         tmd=factor(tmd),
+         type=factor(type),
          tmdname=factor(tmdname),
+         irsvname=factor(irsvname),
          nranges=factor(nranges)) |> 
   # select(vtype, tmdname, incsort, incrange, ptarget:abspdiff) |> 
+  mutate(across(any_of(number_columns),
+                \(x) case_when(vtype=="amount" ~ label_comma(accuracy=.01, scale=1e-9)(x),
+                               vtype=="nreturns" ~ label_comma(accuracy=1, scale=1)(x),
+                               .default = "ERROR"))) |> 
   arrange(vtype, tmdname, incsort) |> 
   DT::datatable(rownames = FALSE,
             options = list(scrollX = TRUE, scrollY = '1800px', pageLength = 23), # autoWidth = TRUE, 
@@ -506,7 +529,8 @@ tab <- comp |>
               ),
             width = "100%",
             filter="top") |>
-    formatCurrency(columns = dollar_columns, currency="", digits=2) |>
+    formatStyle(columns = number_columns, `text-align` = 'right') |> 
+    # formatCurrency(columns = dollar_columns, currency="", digits=2) |>
     formatPercentage(columns = c("pdiff", "abspdiff"), digits = 1)
 
 tab
@@ -559,8 +583,8 @@ df |>
 
 
 df |> 
-  filter(tmd=="masterpr139") |> 
-  mutate(tmd="original", weight=s006_original) |> 
+  filter(type=="masterpr139") |> 
+  mutate(type="original", weight=s006_original) |> 
   bind_rows(df |> 
               rename(weight=s006)) |> 
   ggplot(aes(weight)) +
@@ -570,8 +594,8 @@ df |>
   facet_wrap(~tmd, ncol=1)
 
 df |> 
-  filter(tmd=="masterpr139") |> 
-  mutate(tmd="original", weight=s006_original) |> 
+  filter(type=="masterpr139") |> 
+  mutate(type="original", weight=s006_original) |> 
   bind_rows(df |> 
               rename(weight=s006)) |> 
   ggplot(aes(weight)) +
@@ -999,345 +1023,6 @@ ratios |>
 
 
 
-<!-- IRS targets subset -->
-
-<!-- ```{r} -->
-<!-- #| label: targets-subset -->
-<!-- #| output: false -->
-
-<!-- years <- 2021 -->
-
-<!-- irs_tab11 <- ptargets |>  -->
-<!--   filter(year %in% years,  -->
-<!--          table=="tab11",  -->
-<!--          datatype=="taxable", -->
-<!--          incsort > 1, -->
-<!--          vname %in% c("agi", "nret_all", "tottax")) |>  -->
-<!--   select(year, incsort, incrange, vname, value=ptarget) |>  -->
-<!--   mutate(file="irs", -->
-<!--          vname=case_when(vname=="nret_all" ~ "nret", -->
-<!--                          vname=="tottax" ~ "irstottax", -->
-<!--                          .default = vname), -->
-<!--          value=ifelse(!str_detect(vname, "nret"), value * 1000, value)) -->
-
-
-<!-- stub <- irs_tab11 |>  -->
-<!--   select(year, vname, incsort, incrange) |>  -->
-<!--   distinct() |>  -->
-<!--   crossing(file=c("irs", "tmd")) -->
-<!-- count(stub, year, file, incsort, incrange) -->
-
-<!-- ``` -->
-
-
-<!-- ## Get puf and base tmd files -->
-
-<!-- ```{r} -->
-<!-- #| label: pufraw-2015 -->
-<!-- #| output: false -->
-
-<!-- puf <- vroom(ppath) -->
-
-<!-- pufraw2015 <- puf |>  -->
-<!--   btools::lcnames() |>  -->
-<!--   mutate(year=2015, s006=s006 / 100) -->
-
-<!-- glimpse(pufraw2015) -->
-<!-- ns(pufraw2015) -->
-<!-- rm(puf) -->
-
-
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-<!-- #| label: weights-tmd -->
-<!-- #| output: false -->
-
-<!-- wtsraw <- vroom(fs::path(stor_path, "tmd_weights.csv.gz")) -->
-<!-- wtsums <- wtsraw |>  -->
-<!--   mutate(recnum=row_number()) |>  -->
-<!--   pivot_longer(-recnum, names_to = "year", values_to = "weight") |>  -->
-<!--   mutate(year=as.integer(str_sub(year, 3, 6)), -->
-<!--          weight=weight / 100.) |>  -->
-<!--   summarise(weight=sum(weight), .by=year) -->
-
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-<!-- #| label: puftc-2021 # puf that Nikhil ran through tax calculator -->
-<!-- #| output: false -->
-
-<!-- puftc2021 <- vroom(fs::path(stor_path, "puf_2021.csv")) |>  -->
-<!--   lcnames() |>  -->
-<!--   mutate(year=2021, s006=s006 / 100) -->
-<!-- glimpse(puftc2021) # 207,696 -->
-
-<!-- ns(puftc2021) -->
-
-<!-- ``` -->
-
-<!-- ## Get Nikhil's summary file TBD -->
-
-<!-- ```{r} -->
-<!-- #| label: Nikhil-summary -->
-<!-- #| output: false -->
-
-<!-- # dir <- r"(C:\Users\donbo\Downloads)" -->
-<!-- dir <- here::here("data", "tmd") -->
-<!-- fn <- "soi_from_puf_tmd_2021.csv" -->
-<!-- df <- read_csv(path(dir, fn)) -->
-
-<!-- # Use Nikhil's variable names for the GitHub issue -->
-<!-- # df |>  -->
-<!-- #   filter(Variable == "adjusted_gross_income", -->
-<!-- #          `Filing status` == "All", -->
-<!-- #          !Count, -->
-<!-- #          `Taxable only`, -->
-<!-- #          !`Full population`) |>  -->
-<!-- #   select(-c(`Filing status`, Count, `Taxable only`, `Full population`)) |> # for readability, drop columns with only one value -->
-<!-- #   arrange(`AGI lower bound`, desc(`AGI upper bound`), OK) |>  -->
-<!-- #   gt() |>  -->
-<!-- #   fmt_number(columns = c(`AGI lower bound`, `AGI upper bound`), -->
-<!-- #              scale=1, -->
-<!-- #              decimals = 0) |>   -->
-<!-- #   fmt_number(columns = Value:`Absolute error`, -->
-<!-- #              scale=1e-9, -->
-<!-- #              decimals = 2) |>  -->
-<!-- #   fmt_percent(columns=c(`Relative error`, `Absolute relative error`), -->
-<!-- #               decimals=1) -->
-
-<!-- glimpse(df) -->
-
-
-<!-- df2 <- df |>  -->
-<!--   select(var=1, fstat=2, agilb=3, agiub=4, count=5, -->
-<!--          taxable=6, fullpop=7, value=8, soivalue=9, error=10, abserr=11, relerr=12, absrelerr=13, ok=14) -->
-<!-- glimpse(df2) -->
-<!-- count(df2, fstat) -->
-<!-- count(df2 |> filter(var=="adjusted_gross_income", count==TRUE), ) -->
-<!-- df2 |> filter(var=="adjusted_gross_income") -->
-
-<!-- df2 |> filter(count==TRUE, taxable==TRUE, fstat=="All", agilb==-Inf, agiub==Inf) -->
-<!-- df2 |> filter(count==TRUE, taxable==TRUE, agilb==-Inf, agiub==Inf) |> arrange(desc(abserr)) -->
-
-<!-- df2 |>  -->
-<!--   filter(taxable, agilb==-Inf, agiub==Inf, count==FALSE, fullpop==FALSE) |>  -->
-<!--   select(var, fstat, value:absrelerr) |>  -->
-<!--   arrange(desc(abserr)) |>  -->
-<!--   gt() |>  -->
-<!--   fmt_number(columns = value:abserr, -->
-<!--              scale=1e-9, -->
-<!--              decimals = 2) |>  -->
-<!--   fmt_percent(columns=c(relerr, absrelerr), -->
-<!--               decimals=1) -->
-
-
-<!-- df2 |>  -->
-<!--   filter(agilb==-Inf, agiub==Inf, count==TRUE) |>  -->
-<!--   arrange(var) -->
-
-
-<!-- df2 |>  -->
-<!--   filter(taxable, agilb==-Inf, agiub==Inf, count==FALSE, fullpop==TRUE)  -->
-
-<!-- df2 |>  -->
-<!--   filter(taxable, var=="adjusted_gross_income", fstat=="All", count==FALSE, fullpop==FALSE) |>  -->
-<!--   arrange(agilb, agiub) -->
-<!--   select(var, agilb, agiub, value:absrelerr) |>  -->
-<!--   distinct() |>  -->
-<!--   arrange(agilb, agiub) |>  -->
-<!--   gt() |>  -->
-<!--   fmt_number(columns = c(agilb, agiub), -->
-<!--              scale=1, -->
-<!--              decimals = 0) |>  -->
-<!--   fmt_number(columns = value:abserr, -->
-<!--              scale=1e-9, -->
-<!--              decimals = 2) |>  -->
-<!--   fmt_percent(columns=c(relerr, absrelerr), -->
-<!--               decimals=1) -->
-
-
-<!-- ``` -->
-
-
-<!-- ## Get alternative penalty files -->
-
-<!-- ```{r} -->
-<!-- #| label: penalty-data -->
-<!-- #| output: false -->
-
-<!-- pen0 <- vroom(fs::path(scratch_path, "tmdout_penalty0.csv")) |> mutate(penweight=0) -->
-<!-- pen.25 <- vroom(fs::path(scratch_path, "tmdout_penalty0.25.csv")) |> mutate(penweight=.25) -->
-<!-- pen.5 <- vroom(fs::path(scratch_path, "tmdout_penalty0.5.csv")) |> mutate(penweight=.5) -->
-<!-- pen.75 <- vroom(fs::path(scratch_path, "tmdout_penalty0.75.csv")) |> mutate(penweight=.75) -->
-
-<!-- pen0_original <- pen0 |>  -->
-<!--   mutate(s006=s006_original, penweight=-1) -->
-
-<!-- pendf <- bind_rows(pen0, pen.25, pen.5, pen.75, pen0_original) -->
-
-<!-- pendf |>  -->
-<!--   summarise(n=n(), wtdn=sum(s006), wtdn_original=sum(s006_original), .by=penweight) -->
-
-<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
-
-<!-- qratios <- pendf |>  -->
-<!--   mutate(ratio=s006 / s006_original) |>  -->
-<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
-<!--             .by = penweight) -->
-
-<!-- qratios |>  -->
-<!--   unnest_wider(col = qratio) -->
-
-<!-- pendf |>  -->
-<!--   mutate(pdiff=s006 / s006_original -1) |>  -->
-<!--   select(RECID, s006, s006_original, pdiff) |>  -->
-<!--   ht() -->
-
-<!-- pendf |>  -->
-<!--   mutate(pdiff=s006 / s006_original -1) |>  -->
-<!--   summarise(ssd=sum(pdiff^2), -->
-<!--             .by = penweight) -->
-
-
-<!-- ``` -->
-
-<!-- ## Check aggregate values for important variables -->
-
-<!-- ```{r} -->
-<!-- ptsub <- ptargets |>  -->
-<!--   filter(datatype=="taxable", year==2021, vname %in% pimap$irs_varname) |>  -->
-<!--   # filter(!(vname=="agi" & table!="tab11")) |>  -->
-<!--   select(datatype, year, table, incsort, incrange, vname, ptarget) |>  -->
-<!--   distinct() -->
-
-<!-- count(ptsub, vname) -->
-
-<!-- ptsub |> filter(vname=="agi") |> arrange(incsort, table) -->
-
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-
-<!-- (vars_to_make <- setdiff(pimap$puf_based_name, names(tmdtc2021))) -->
-
-<!-- tmdtp <- tmdtc2021 |>   -->
-<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
-<!--          file="tmd") |>  -->
-<!--   filter(irstottax > 0) |>  -->
-<!--   select(file, year=FLPDYR, s006, any_of(pimap$puf_based_name)) |>  -->
-<!--   pivot_longer(cols = -c(file, year, s006), names_to = "puf_based_name", values_to = "tmd") -->
-<!-- ns(tmdtp) -->
-<!-- glimpse(tmdtp) -->
-
-
-<!-- comp <- tmdtp |>  -->
-<!--   summarise(tmd=sum(s006 * tmd), .by = c(puf_based_name, year)) |>  -->
-<!--   left_join(pimap |>  -->
-<!--               filter(!is.na(irs_varname)) |>  -->
-<!--               select(puf_based_name, irs_varname), -->
-<!--             by = join_by(puf_based_name)) |>  -->
-<!--   left_join(ptsub |>  -->
-<!--               filter(year==2021, incsort==1) |>  -->
-<!--               select(irs_varname=vname, irs=ptarget) |>  -->
-<!--               distinct() |>  -->
-<!--               mutate(irs=irs * 1000), -->
-<!--             by = join_by(irs_varname)) |>  -->
-<!--   select(year, puf_based_name, irs_varname, irs, tmd) |>  -->
-<!--   filter(!(is.na(irs))) |>  -->
-<!--   mutate(diff=tmd - irs, -->
-<!--          pdiff=diff / irs) -->
-
-<!-- comp -->
-
-
-
-<!-- ``` -->
-
-
-<!-- ## Check baseline agi by income range for taxable -->
-
-<!-- ```{r} -->
-
-<!-- taxpayers <- tmdtc2021 |>   -->
-<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
-<!--          file="tmd") |>  -->
-<!--   filter(irstottax > 0) |>  -->
-<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
-
-<!-- taxpayers <- pen0_original |>   -->
-<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
-<!--          file="tmd") |>  -->
-<!--   filter(irstottax > 0) |>  -->
-<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
-
-<!-- taxpayers <- pen0_original |>   -->
-<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
-<!--          file="tmd") |>  -->
-<!--   # filter(irstottax > 0) |>  -->
-<!--   filter(data_source==1) |>  -->
-<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
-
-<!-- taxpayers <- pen0 |>   -->
-<!--   mutate(irstottax = pmax(c09200 - refund, 0), -->
-<!--          file="tmd") |>  -->
-<!--   # filter(irstottax > 0) |>  -->
-<!--   filter(data_source==1) |>  -->
-<!--   select(file, year=FLPDYR, s006, c00100, irstottax) -->
-
-<!-- collapse <- taxpayers |> -->
-<!--   mutate(ycut=cut(c00100, ycut19, right=FALSE), -->
-<!--          incsort=as.integer(ycut) + 1L) |> # incsort will match with targets file -->
-<!--   summarise(tmdnrecs=n(), -->
-<!--             nret = sum(s006),  -->
-<!--             agi = sum(s006 * c00100), -->
-<!--             irstottax=sum(s006 * irstottax), -->
-<!--             .by=c(file, year, incsort, ycut)) |> -->
-<!--   pivot_longer(cols=-c(file, year, incsort, ycut, tmdnrecs), names_to = "vname", values_to = "tmd") -->
-
-<!-- dfwide <- stub |>  -->
-<!--   filter(file!="irs") |>  -->
-<!--   select(-file) |>  -->
-<!--   left_join(collapse |> select(-ycut), join_by(year, vname, incsort)) |>  -->
-<!--   left_join(irs_tab11 |>  select(year, incsort, vname, irs=value), -->
-<!--             by = join_by(year, vname, incsort)) -->
-
-<!-- dflong <- stub |>  -->
-<!--   filter(file!="irs") |>  -->
-<!--   left_join(collapse |> select(-ycut), join_by(year, vname, incsort, file)) |>  -->
-<!--   bind_rows(irs_tab11) -->
-
-<!-- glimpse(dflong) -->
-
-<!-- ``` -->
-
-
-
-<!-- ```{r} -->
-<!-- #| label: tabwide -->
-
-<!-- tabtmd(dfwide, 2021, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1) -->
-
-<!-- tabtmd(dfwide, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1) -->
-
-<!-- ``` -->
-
-
-
-<!-- ```{r} -->
-
-<!-- tab(dflong, 2021, "nret", title="Number of taxable returns (thousands)", scale=1e-3, decimals=1) -->
-
-<!-- tab(dflong, 2021, "agi", title="Adjusted gross income ($ billions), taxable returns", scale=1e-9, decimals=1) -->
-
-<!-- ``` -->
-
-
-<!-- ## Explore the tmd 2021 file (tmd_2021.csv) -->
-
 <!-- ### Treatment of aggregate records -->
 
 <!-- Here is what the 2015 PUF documentation (p.3) says about aggregate records: -->
@@ -1363,237 +1048,3 @@ ratios |>
 
 <!--  Seems like it would be a good idea to have a test for whether aggregate records are included. -->
 
-
-<!-- ```{r} -->
-<!-- #| label: tmdtc-2021-aggregate-records -->
-<!-- #| output: true -->
-<!-- #| column: page -->
-
-<!-- df <- left_join( -->
-<!--   tmdtc2021 |>  -->
-<!--     select(recid=RECID,  -->
-<!--          s006_tmd=s006, c00100_tmd=c00100, c01000_tmd=c01000, taxbc_tmd=taxbc) |>  -->
-<!--     filter(recid >= 999000), -->
-
-<!--   pufraw2015 |>  -->
-<!--     select(recid, e00100_puf=e00100, e01000_puf=e01000) |>  -->
-<!--     filter(recid >= 999000), -->
-
-<!--   by = join_by(recid))  |>  -->
-<!--   mutate(across(c(c00100_tmd, c01000_tmd, taxbc_tmd), -->
-<!--                 \(x) s006_tmd * x, -->
-<!--                 .names = "wtd_{.col}")) |>  -->
-<!--   arrange(recid) -->
-
-<!-- df |>  -->
-<!--   gt() |>  -->
-<!--   fmt_number(columns=-c(recid, s006_tmd), -->
-<!--              # scale=1e-9, -->
-<!--              decimals=0) |> -->
-<!--   fmt_number(columns=s006_tmd, -->
-<!--              decimals = 2) -->
-
-<!-- ``` -->
-
-
-<!-- ### Negative s006 -->
-
-<!-- On tmd_2021.csv, we have 2,012 records on which s006 is negative. No records have negative s006_original, the weight immediately before optimized reweighting. Thus, the optimization is causing this. -->
-
-<!-- The negative-s006 records represent 84.5 thousand tax returns and result in weighted tax before credits of negative $1.7 billion. We had agreed to make sure optimized weights could not be negative and I thought had accomplished that for a while.  -->
-
-<!-- Seems like it would be a good idea to have a test for whether we have negative weights. -->
-
-<!-- ```{r} -->
-
-<!-- tmdtc2021 |>  -->
-<!--   filter(s006 < 0) |>  -->
-<!--   summarise(n=n(), mean=mean(s006), median=median(s006), min=min(s006), wtd_n=sum(s006), wtd_taxbc=sum(s006 * taxbc)) |>  -->
-<!--   gt() |>  -->
-<!--   fmt_number(columns=c(n, wtd_taxbc), -->
-<!--              decimals = 0) |>  -->
-<!--   fmt_number(columns=-c(n, wtd_taxbc), -->
-<!--              decimals = 2) -->
-
-<!-- ``` -->
-
-
-<!-- ### Weights and changes in weights -->
-
-<!-- ```{r} -->
-<!-- ns(tmdtc2021) -->
-
-<!-- vdiff <- function(var, s006, s006_original){ -->
-<!--   (s006 - s006_original) * var -->
-<!-- } -->
-
-<!-- df <- tmdtc2021 |>  -->
-<!--   select(recid=RECID, data_source, s006, s006_original, MARS, c00100, taxbc) |>  -->
-<!--   mutate(ratio=s006 / s006_original,  -->
-<!--          dweight=s006 - s006_original, -->
-<!--          dagi=vdiff(c00100, s006, s006_original), -->
-<!--          dtaxbc=vdiff(taxbc, s006, s006_original) -->
-<!--          )  -->
-
-<!-- sum(df$s006) / sum(df$s006_original) -->
-
-<!-- summary(df) -->
-
-<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
-
-<!-- qvals <- df |>  -->
-<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
-<!--             qdweight=quantile(dweight, probs = p) |> list()) -->
-
-
-<!-- qvals <- df |>  -->
-<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
-<!--             qdweight=quantile(dweight, probs = p) |> list(), -->
-<!--             .by=MARS) |>  -->
-<!--   arrange(MARS) -->
-
-<!-- qvals |>  -->
-<!--   unnest_wider(col = qratio) -->
-
-<!-- qvals |>  -->
-<!--   unnest_wider(col = qdweight) -->
-
-
-<!-- df |>  -->
-<!--   arrange(desc(ratio)) |>  -->
-<!--   slice_max(ratio, n=20) -->
-
-<!-- df |>  -->
-<!--   arrange(desc(abs(dtaxbc))) |>  -->
-<!--   slice_max(abs(dtaxbc), n=20) -->
-
-<!-- df |>  -->
-<!--   arrange(desc(abs(dweight)) |>  -->
-<!--   slice_max(dweight, n=20) -->
-
-
-<!-- df |>  -->
-<!--   arrange(desc(dtaxbc)) |>  -->
-<!--   slice_max(dtaxbc, n=20) -->
-
-
-<!-- ``` -->
-
-
-<!-- ## Reweighting analysis -->
-
-<!-- ```{r} -->
-<!-- rwdir <- here::here("data", "reweighting_files") -->
-
-<!-- tmdbase <- vroom(path(rwdir, "tmd_2021_baseline.csv")) -->
-<!-- glimpse(tmdbase) -->
-
-<!-- tmdalt <- vroom(path(rwdir, "tmd_2021_penalty_0.1.csv")) -->
-<!-- tmdalt <- vroom(path(rwdir, "tmd_2021_penalty_1.0.csv")) -->
-
-<!-- sum(tmdbase$s006) -->
-<!-- sum(tmdalt$s006) -->
-
-<!-- df <- bind_rows( -->
-<!--   tmdbase |> mutate(ftype="base"), -->
-<!--   tmdalt |>  mutate(ftype="alt")) |>  -->
-<!--   mutate(wdiff=s006 - s006_original, -->
-<!--          ratio=s006 / s006_original) -->
-
-<!-- df2 <- df |>  -->
-<!--   select(ftype, recid=RECID, data_source, s006, s006_original, MARS, c00100, taxbc) |>  -->
-<!--   mutate(ratio=s006 / s006_original,  -->
-<!--          dweight=s006 - s006_original, -->
-<!--          dagi=vdiff(c00100, s006, s006_original), -->
-<!--          dtaxbc=vdiff(taxbc, s006, s006_original) -->
-<!--          )  -->
-
-<!-- p <- c(0, .01, .05, .10, .25, .5, .75, .9, .95, .99, 1) -->
-<!-- qvals <- df2 |>  -->
-<!--   summarise(qratio=quantile(ratio, probs = p) |> list(), -->
-<!--             qdweight=quantile(dweight, probs = p) |> list(), -->
-<!--             .by=ftype) |>  -->
-<!--   arrange(ftype) -->
-
-<!-- qvals |>  -->
-<!--   unnest_wider(col = qratio) -->
-
-<!-- qvals |>  -->
-<!--   unnest_wider(col = qdweight) -->
-
-
-<!-- df |>  -->
-<!--   arrange(desc(ratio)) |>  -->
-<!--   slice_max(ratio, n=20) -->
-
-<!-- df |>  -->
-<!--   arrange(desc(dweight)) |>  -->
-<!--   slice_max(dweight, n=20) -->
-
-<!-- df |>  -->
-<!--   arrange(desc(dtaxbc)) |>  -->
-<!--   slice_max(dtaxbc, n=20) -->
-
-
-
-
-<!-- ``` -->
-
-
-
-
-
-## Prepare the tmd data
-
-
-```{r}
-#| label: tmdtc-2021 # tmd that has been run through tax calculator
-#| output: false
-
-# do one of the following
-# tpath <- fs::path(stor_path, "tmd_2021.csv")
-# tpath <- fs::path(stor_path, "tmd_2021.csv")
-# tpath <- fs::path(scratch_path, "tmdout-21-#-#-#.csv")
-# tpath <- fs::path(scratch_path, "master_pr134", "tmd_2021.csv")
-# tpath <- fs::path(scratch_path, "issue126", "tmd_2021.csv")
-
-tmdtc2021 <- vroom(tpath) # if run through tc by Nikhil
-# tmdtc2021 <- vroom(fs::path(stor_path, "tmd_2021.csv")) # if run through tc by Nikhil
-# tmdtc2021 <- vroom(fs::path(scratch_path, "tmdout-21-#-#-#.csv")) # if I ran it through myself
-
-ns(tmdtc2021)
-glimpse(tmdtc2021)
-# qbi = np.maximum(0, df.e00900 + df.e26270 + df.e02100 + df.e27200)
-
-df <- tmdtc2021 |> 
-  select(RECID, data_source, s006, s006_original, c00100, e00900, e26270, e02100, e27200, PT_binc_w2_wages, qbided) |> 
-  mutate(qbi=pmax(0, e00900 + e26270 + e02100 + e27200),
-         ratio=s006 / s006_original)
-
-summary(df)
-
-df |> 
-  filter(data_source==1) |> 
-  select(-c00100, -ratio, -data_source) |>  
-  pivot_longer(-c(RECID, s006, s006_original)) |> 
-  summarise(s006_original=sum(value * s006_original),
-            s006=sum(value * s006),
-            .by=name) |> 
-  mutate(diff=s006 - s006_original, pdiff=diff / s006_original) |>
-  left_join(utcvars |> select(name=vname, desc),
-            by = join_by(name)) |> 
-  gt() |> 
-  fmt_number(columns=s006_original:diff,
-             scale=1e-9,
-             decimals=2) |> 
-  fmt_percent(columns=pdiff,
-              decimals = 1)
-
-uxtargets
-count(uxtargets, tmdname, irsvname)
-
-uxtargets |> 
-  filter(tmdname %in% c("e00900pos", "e00900neg"), year==2021, incsort==1) |> 
-  summarise(ptarget=sum(ptarget))
-
-```
