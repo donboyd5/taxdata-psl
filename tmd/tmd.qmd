@@ -69,7 +69,6 @@ ycut22 <- c(-Inf,
 ```
 
 
-
 ```{r}
 #| label: constants
 #| output: false
@@ -306,8 +305,7 @@ fndf <- read_csv("
 fnbase,type                 
 td21_2024-07-18, taxdata
 pr150,
-pr148_bnpcggtpitssdist,
-pr150_bnpcggodpsitiitpitss,
+pr151_bnpcggodpsitiitpitss,
 ")
 
 fndf <- fndf |> 
@@ -458,8 +456,8 @@ ns(collapse)
 (y19vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==19) |> select(tmdname) |> distinct() |> pull(tmdname))
 (y22vars <- uxtargets |> filter(year==2021, datatype=="filers", nranges==22) |> select(tmdname) |> distinct() |> pull(tmdname))
 
-vis_miss(uxtargets)
-vis_miss(uxtargets |> select(-puf_name))
+# vis_miss(uxtargets)
+# vis_miss(uxtargets |> select(-puf_name))
 count(uxtargets, tmdname)
 summary(uxtargets)
 head(collapse)
@@ -503,6 +501,7 @@ count(comp, vtype)
 number_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 
 tab <- comp |> 
+  filter(type != "pr150_original") |> 
   # filter(!is.na(wvalue)) |> 
   # mutate(across(any_of(dollar_columns),
   #               \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
