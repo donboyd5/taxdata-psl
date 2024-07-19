@@ -15,7 +15,7 @@ book:
   date-format: long
   chapters:
     - index.qmd
-    - analyze_weights.qmd
+    # - analyze_weights.qmd
     - tmd.qmd
     
 # bibliography: references.bib

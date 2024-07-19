@@ -1,0 +1,172 @@
+---
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+# Analysis of tax microdata file (tmd)
+
+## Setup
+
+```{r}
+#| label: includes
+#| output: false
+
+source(here::here("r", "libraries.r"))
+# library(jsonlite)
+# library(tidyjson)
+library(naniar)
+
+```
+
+```{r}
+#| label: constants-windows
+#| output: false
+
+# paths in the Windows part of my machine
+# this project
+
+tddir <- r"(E:\data\taxdata-psl)"
+# tpath <- here::here("data", "potential_targets.csv")
+
+targdir <- r"(E:\R_projects\projects\irs_targets\data)"
+tpath <- fs::path(targdir, "potential_targets.rds")
+
+# elsewhere in the windows part of my machine
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+```
+
+```{r}
+#| label: constants-linux
+#| output: false
+
+# Windows subsystem for linux (wsl) folders and filenames
+wsldir <- "/\\wsl.localhost"
+pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
+tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
+stor_path <- fs::path(wsldir, pydir, tmddir)
+scratch_path <- fs::path(wsldir, pydir, "scratch")
+
+```
+
+
+```{r}
+#| label: constants-ycuts
+
+ycut19 <- c(-Inf, 1, 
+            seq(5e3, 30e3, 5e3),
+            40e3, 50e3, 75e3, 100e3,
+            200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+ycut22 <- c(-Inf, 
+            seq(5e3, 60e3, 5e3),
+            75e3, 100e3, 200e3, 500e3,
+            1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
+
+```
+
+
+## taxdata 2011 puf advanced to 2021 and put through Tax-Calculator
+
+```{r}
+#| label: get-tcoutput-data
+
+fndf <- read_csv("
+fnbase,type
+pr150,
+pr151_bnpcggodpsitiitpitss,
+")
+
+fndf <- fndf |> 
+  mutate(fname=case_when(
+    str_detect(type, "taxdata") ~ paste0(fnbase, ".csv"),
+    .default=paste0("tmd_2021_", fnbase, ".csv")),
+    type=ifelse(is.na(type), fnbase, type))
+fndf
+
+f <- function(type, fname){
+  print(fname)
+  fpath <- fs::path(scratch_path, fname)
+  df1 <- vroom(fpath)
+  df2 <- df1 |> 
+    mutate(type=type)
+  df2
+}
+
+stack0 <- fndf |> 
+  rowwise() |> 
+  reframe(f(type, fname))
+
+ns(stack0)
+count(stack0, type)
+
+original <- stack0 |> 
+  filter(type=="pr150") |> 
+  mutate(s006=s006_original,
+         type="pr150_original")
+
+stack <- bind_rows(stack0, original)
+ns(stack)
+count(stack, type)
+
+stack |> 
+  summarise(ctc=sum(ctc_total * s006), .by=c(type, data_source))
+
+stack |> 
+  summarise(n24=sum(n24 * s006), .by=c(type, data_source)) |> 
+  pivot_wider(names_from = type, values_from = n24)
+
+stack |> 
+  mutate(ratio = s006 / s006_original) |> 
+  filter(data_source==1) |> 
+  summarise(ssd=sum((ratio - 1)^2), .by=type) |> 
+  arrange(ssd)
+
+```
+
+
+```{r}
+#| label: define-variables-to-analyze
+
+idvars <- quos(type, data_source, RECID, s006, s006_original)
+idvars_names <- sapply(idvars, as_name)
+
+vars <- quos(c00100, c01000, c02500, c04800,
+             e00200, e00300, e00400, e00600, e00650, e00900, 
+             e01500, e02300, e02400,
+             e17500, e18400, e18500)
+vars_names <- sapply(vars, as_name)
+
+```
+
+
+```{r}
+#| label: select-transform-long-stack
+
+stack1 <- stack |> 
+  select(!!!idvars, !!!vars) |> 
+  mutate(c01000neg = (c01000 < 0)*c01000,
+         c01000pos = (c01000 > 0)*c01000,
+         e00900neg= (e00900 < 0)*e00900,
+         e00900pos= (e00900 > 0)*e00900) |> 
+  mutate(across(-any_of(idvars_names),
+                ~(. != 0) * 1,
+                .names = "{.col}_nnz"))
+
+
+long <- stack1 |> 
+  mutate(ycut19=cut(c00100, ycut19, right=FALSE),
+         incsort19=as.integer(ycut19) + 1L,
+         ycut22=cut(c00100, ycut22, right=FALSE),
+         incsort22=as.integer(ycut22) + 1L,) |> 
+  pivot_longer(cols=-c(all_of(idvars_names), ycut19, incsort19, ycut22, incsort22)) |> 
+  mutate(wvalue=value * s006) |> 
+  relocate(s006, s006_original, .before = value)
+
+ht(long)
+
+
+```
