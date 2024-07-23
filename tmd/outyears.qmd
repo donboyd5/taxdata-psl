@@ -1,0 +1,237 @@
+---
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+# Analyze outyears (tmd)
+
+## Setup
+
+```{r}
+#| label: includes
+#| output: false
+
+source(here::here("r", "libraries.r"))
+# library(jsonlite)
+# library(tidyjson)
+# library(naniar)
+
+```
+
+```{r}
+#| label: constants-windows
+#| output: false
+
+# paths in the Windows part of my machine
+# this project
+
+tddir <- r"(E:\data\taxdata-psl)"
+# tpath <- here::here("data", "potential_targets.csv")
+
+targdir <- r"(E:\R_projects\projects\irs_targets\data)"
+tpath <- fs::path(targdir, "potential_targets.rds")
+
+# elsewhere in the windows part of my machine
+pufdir <- r"(E:\data\puf_files\puf2015)"
+ppath <- fs::path(pufdir, "puf_2015.csv")
+
+```
+
+```{r}
+#| label: constants-linux
+#| output: false
+
+# Windows subsystem for linux (wsl) folders and filenames
+wsldir <- "/\\wsl.localhost"
+pydir <- "Ubuntu/home/donboyd5/Documents/python_projects"
+tmddir <- "tax-microdata-benchmarking/tax_microdata_benchmarking/storage/output"
+stor_path <- fs::path(wsldir, pydir, tmddir)
+scratch_path <- fs::path(wsldir, pydir, "scratch")
+outyears_path <- fs::path(scratch_path, "outyears")
+
+```
+
+## Get data
+
+```{r}
+#| label: read-save-data
+#| output: false
+#| eval: false
+
+paths <- dir_ls(outyears_path) |> str_subset("tmdout") |> sort()
+paths
+
+vroom(fs::path(outyears_path, "tmd-22-#-#-#.csv"))
+
+fn1 <- "//wsl.localhost/Ubuntu/home/donboyd5/Documents/python_projects/scratch/outyears/tmdout2021.csv"
+fs::path_file(fn1)
+
+df <- vroom(paths, id="fname") |> 
+  lcnames() |> 
+  rename(year=flpdyr) |> 
+  mutate(fname=fs::path_file(fname))
+
+count(df, year)
+ht(df)
+
+# saveRDS(df, here::here("data", "outyears.rds")) # uncomment when we obtain new data
+
+```
+
+
+```{r}
+#| label: get-data
+#| output: false
+
+df <- readRDS(here::here("data", "outyears.rds"))  
+glimpse(df)
+count(df, year)
+
+df2 <- df |> 
+  select(-c(fname, recid)) |> 
+  mutate(nreturns=1) |> 
+  pivot_longer(-c(year, data_source, s006)) |>
+  summarise(value=sum(s006 * value), .by=c(year, name, data_source))
+df2
+
+tots <- df2 |> 
+  summarise(value=sum(value), .by=c(year, name)) |> 
+  mutate(data_source=2)
+
+df3 <- bind_rows(df2, tots) |> 
+  mutate(data_source=factor(data_source, levels=0:2, labels=c("cps", "puf", "universe")))
+
+
+```
+
+
+# Selected plots
+
+```{r}
+#| label: selected-plots
+#| column: page
+#| fig-width: 12
+#| fig-height: 8
+
+vorder <- c("nreturns", "c00100", "e00200", "c04800", "taxbc", "payrolltax", "iitax", "eitc", "ctc_total")
+
+ybreaks <- c(seq(2021, 2030, 2), seq(2035, 2075, 5), 2074) |> sort()
+# ybreaks
+
+p <- df3 |> 
+  # filter(name=="c00100") |> 
+  arrange(data_source, name, year) |> 
+  mutate(nyears=year - lag(year),
+         pch=(value / lag(value))^(1 / nyears) - 1,
+         .by=c(name, data_source)) |> 
+  mutate(name=factor(name, levels=vorder)) |> 
+  arrange(name) |> 
+  ggplot(aes(year, pch, colour=data_source)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0) +
+  scale_x_continuous(name=NULL, breaks=ybreaks) +
+  scale_y_continuous(name = "% change", labels = label_percent(accuracy=.1)) +
+  ggtitle("Average-annual % growth rate from prior observation",
+          subtitle="by variable and data source") +
+  facet_wrap(~name, scales = "free", ncol=3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+p
+
+p <- df3 |> 
+  filter(name %in% c("c00100", "e00200")) |> 
+  pivot_wider() |> 
+  mutate(share=e00200 / c00100) |> 
+  # arrange(name) |> 
+  ggplot(aes(year, share, colour=data_source)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(name=NULL, breaks=ybreaks) +
+  scale_y_continuous(name = "% of agi", labels = label_percent(accuracy=.1)) +
+  ggtitle("Wages as % of AGI",
+          subtitle="by data source") +
+  # facet_wrap(~name, scales = "free", ncol=3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+p
+
+p <- df3 |> 
+  filter(name %in% c("c00100", "c04800")) |> 
+  pivot_wider() |> 
+  mutate(share=c04800 / c00100) |> 
+  # arrange(name) |> 
+  ggplot(aes(year, share)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(name=NULL, breaks=ybreaks) +
+  scale_y_continuous(name = "% of agi", labels = label_percent(accuracy=.1)) +
+  ggtitle("Taxable income as % of AGI",
+          subtitle="by data source") +
+  facet_wrap(~data_source, scales = "free", nrow=1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+p
+
+p <- df3 |> 
+  filter(name %in% c("c00100", "c04800", "taxbc")) |> 
+  pivot_wider() |> 
+  mutate(shareagi=taxbc / c00100,
+         shareti=taxbc / c04800) |> 
+  pivot_longer(cols=contains("share")) |> 
+  ggplot(aes(year, value, colour=name)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(name=NULL, breaks=ybreaks) +
+  scale_y_continuous(name = "% of agi", labels = label_percent(accuracy=.1)) +
+  ggtitle("Tax before credits as % of taxable income and AGI",
+          subtitle="by data source") +
+  facet_wrap(~data_source, scales = "free", nrow=1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+p
+
+
+```
+
+
+
+```{r}
+#| label: selected-tables
+#| eval: false
+#| output: false
+
+df |> 
+  summarise(iitax=sum(iitax * s006), .by=year) |> 
+  gt() |> 
+  fmt_number(columns = -year,
+             scale=1e-9,
+             decimals=2)
+
+df |> 
+  summarise(taxbc=sum(taxbc * s006), .by=year) |> 
+  gt() |> 
+  fmt_number(columns = -year,
+             scale=1e-9,
+             decimals=2)
+
+df |> 
+  summarise(nret=sum(s006),
+            c00100=sum(c00100 * s006),
+            iitax=sum(iitax * s006), .by=year) |> 
+  arrange(year) |> 
+  mutate(pchnret=nret / lag(nret) -1,
+         pchc00100=c00100 / lag(c00100) -1,
+         pchiitax=iitax / lag(iitax) - 1) |> 
+  gt() |> 
+  fmt_number(columns = nret,
+             decimals = 0) |> 
+  fmt_number(columns = c(c00100, iitax),
+             scale=1e-9,
+             decimals=2) |> 
+  fmt_percent(columns = starts_with("pch"),
+              decimals = 1)
+
+```
+

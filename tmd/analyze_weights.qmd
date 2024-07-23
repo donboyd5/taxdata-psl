@@ -10,7 +10,6 @@ editor_options:
 
 ```{r}
 #| label: includes
-#| output: false
 
 source(here::here("r", "libraries.r"))
 # library(jsonlite)

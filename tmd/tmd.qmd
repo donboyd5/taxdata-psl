@@ -15,7 +15,7 @@ editor_options:
 source(here::here("r", "libraries.r"))
 # library(jsonlite)
 # library(tidyjson)
-library(naniar)
+# library(naniar)
 
 ```
 
@@ -65,68 +65,6 @@ ycut22 <- c(-Inf,
             seq(5e3, 60e3, 5e3),
             75e3, 100e3, 200e3, 500e3,
             1e6, 1.5e6, 2e6, 5e6, 10e6, Inf)
-
-```
-
-
-```{r}
-#| label: constants
-#| output: false
-
-
-tab <- function(data, year, vname, title, scale=1, decimals=0){
-  # create gt comparison table using a chosen variable
-  
-  tabdata <- data |> 
-    filter(year==!!year, vname==!!vname) |> 
-    select(incsort, incrange, file, nrecs, value) |> 
-    arrange(incsort) |> 
-    pivot_wider(names_from = file) |> 
-    select(incsort, incrange, irs, tmd) |> 
-    adorn_totals() |> 
-    mutate(diff=tmd - irs,
-           pdiff=diff / irs)
-  
-  tab <- tabdata |>
-    gt() |>
-    tab_header(title = html(title),
-               subtitle = html(paste0(vname, " -- ", year))) |>
-  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
-             scale=scale,
-             decimals=decimals) |>
-  fmt_percent(columns=contains("pdiff"),
-             scale=1,
-             decimals=1)
-  tab
-}
-
-
-tabtmd <- function(data, year, vname, title, scale=1, decimals=0){
-  # create gt comparison table using a chosen variable
-  
-  tabdata <- data |> 
-    filter(year==!!year, vname==!!vname) |> 
-    select(incsort, incrange, tmdnrecs, irs, tmd) |> 
-    arrange(incsort) |>
-    adorn_totals() |> 
-    mutate(diff=tmd - irs,
-           pdiff=diff / irs)
-  
-  tab <- tabdata |>
-    gt() |>
-    tab_header(title = html(title),
-               subtitle = html(paste0(vname, " -- ", year))) |>
-    fmt_number(columns=c(irs, tmd, diff),
-               scale=scale,
-               decimals=decimals) |>
-    fmt_number(columns=tmdnrecs,
-               scale=1,
-               decimals=0) |> 
-    fmt_percent(columns=contains("pdiff"),
-                scale=1,
-                decimals=1)
-  tab
-}
 
 ```
 
@@ -291,21 +229,13 @@ head(uxtargets)
 
 # td21_2024-07-18, taxdata_mh
 # tdtc2021, taxdata_db
+# masterpr157,
 
-# fndf <- read_csv("
-# fnbase,type                 
-# td21_2024-07-18, taxdata
-# pr148,
-# pr148_pen.05,
-# pr148_cggdist,
-# pr148_bnpcggtpitssdist,
-# ")
 
 fndf <- read_csv("
 fnbase,type                 
 td21_2024-07-18, taxdata
-pr150,
-pr152_bnpcggodpsiqdtiitpitss,
+phase3,
 ")
 
 fndf <- fndf |> 
@@ -332,9 +262,9 @@ ns(stack0)
 count(stack0, type)
 
 original <- stack0 |> 
-  filter(type=="pr150") |> 
+  filter(str_detect(type, "phase3")) |> 
   mutate(s006=s006_original,
-         type="pr150_original")
+         type=paste0(type, "_original"))
 
 stack <- bind_rows(stack0, original)
 ns(stack)
@@ -383,12 +313,6 @@ stack1 <- stack |>
   mutate(across(-any_of(idvars_names),
                 ~(. != 0) * 1,
                 .names = "{.col}_nnz"))
-  
-
-# TODO: nnz vars
-  # mutate(across(any_of(vars),
-  #        ~(. != 0) * 1,
-  #        .names = "{.col}_nnz"))
 
 long <- stack1 |> 
   mutate(ycut19=cut(c00100, ycut19, right=FALSE),
@@ -401,13 +325,11 @@ long <- stack1 |>
 
 ht(long)
 
-
 ```
 
 
 ```{r}
 #| label: collapse-long
-
 
 # collapsed by income range
 collapse19 <- long |> 
@@ -438,8 +360,6 @@ collapse <- bind_rows(
          ycut=ifelse(is.na(ycut), "Total", ycut))
 ht(collapse)
 count(collapse, incsort, ycut)
-
-# mutate(ycut19 = fct_na_value_to_level(ycut19, level = "Total"))
 
 # we have different counts because data_sort==0 does not have records with high agi
 count(collapse, data_source, incsort, ycut) 
@@ -480,6 +400,7 @@ comp <- collapse |>
   select(nranges, type, tmdname=name, vtype, irsvname, incsort, incrange, ptarget, wvalue, diff, pdiff, absdiff, abspdiff)
 
 count(comp, vtype)
+count(comp, type)
 
 ```
 
@@ -497,16 +418,11 @@ count(comp, vtype)
 #| label: examine
 #| column: page
 
-# dollar_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 number_columns <- c("ptarget", "wvalue", "diff", "absdiff")
 
 tab <- comp |> 
-  filter(type != "pr150_original") |> 
-  # filter(!is.na(wvalue)) |> 
-  # mutate(across(any_of(dollar_columns),
-  #               \(x) ifelse(vtype=="amount", x / 1e9, x))) |> # $ billions
-  # weightvar=factor(weightvar, levels=c("s006", "s006_original"), labels=c("s006_final", "s006_original")),
-  # create factors so that they will appear in dropdown boxes
+  filter(!str_detect(type, "original")) |>
+  # filter(type %in% c("taxdata", "masterpr157")) |> 
   mutate(incsort=factor(incsort),
          vtype=factor(vtype),
          type=factor(type),
@@ -539,4 +455,74 @@ tab <- comp |>
 tab
 
 ```
+
+
+
+<!-- old below here -->
+
+
+
+```{r}
+#| label: tab-functions
+#| eval: false
+#| output: false
+
+
+tab <- function(data, year, vname, title, scale=1, decimals=0){
+  # create gt comparison table using a chosen variable
+  
+  tabdata <- data |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, file, nrecs, value) |> 
+    arrange(incsort) |> 
+    pivot_wider(names_from = file) |> 
+    select(incsort, incrange, irs, tmd) |> 
+    adorn_totals() |> 
+    mutate(diff=tmd - irs,
+           pdiff=diff / irs)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+  fmt_number(columns=-c(incsort, incrange, contains("pdiff")),
+             scale=scale,
+             decimals=decimals) |>
+  fmt_percent(columns=contains("pdiff"),
+             scale=1,
+             decimals=1)
+  tab
+}
+
+
+tabtmd <- function(data, year, vname, title, scale=1, decimals=0){
+  # create gt comparison table using a chosen variable
+  
+  tabdata <- data |> 
+    filter(year==!!year, vname==!!vname) |> 
+    select(incsort, incrange, tmdnrecs, irs, tmd) |> 
+    arrange(incsort) |>
+    adorn_totals() |> 
+    mutate(diff=tmd - irs,
+           pdiff=diff / irs)
+  
+  tab <- tabdata |>
+    gt() |>
+    tab_header(title = html(title),
+               subtitle = html(paste0(vname, " -- ", year))) |>
+    fmt_number(columns=c(irs, tmd, diff),
+               scale=scale,
+               decimals=decimals) |>
+    fmt_number(columns=tmdnrecs,
+               scale=1,
+               decimals=0) |> 
+    fmt_percent(columns=contains("pdiff"),
+                scale=1,
+                decimals=1)
+  tab
+}
+
+```
+
+
 
