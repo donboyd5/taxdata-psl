@@ -437,8 +437,9 @@ tab <- comp |>
   arrange(vtype, tmdname, incsort) |> 
   relocate(tmdname, type, .before=ptarget) |> 
   DT::datatable(rownames = FALSE,
-            options = list(scrollX = TRUE, scrollY = '1800px', 
-                           pageLength = 20, # initial value
+            options = list(scrollX = TRUE, scrollY = '1000px', 
+                           fixedHeader = TRUE,
+                           pageLength = 100, # initial value
                            paging = TRUE,
                            lengthMenu = c(10, 20, 23, 50, 100)), # autoWidth = TRUE, 
             caption = htmltools::tags$caption(
